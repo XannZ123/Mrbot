@@ -341,6 +341,10 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
       const isAntiBot = lowerKick.includes('voltraz') || 
                         lowerKick.includes('sonar') ||
                         lowerKick.includes('antibot') || 
+                        lowerKick.includes('anti-bot') || 
+                        lowerKick.includes('reconnect to verify') || 
+                        lowerKick.includes('please reconnect') || 
+                        lowerKick.includes('verification') || 
                         lowerKick.includes('bot verification') || 
                         lowerKick.includes('failed the bot') || 
                         lowerKick.includes('reconnected too fast')
@@ -356,17 +360,18 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
         return
       }
 
-      // Bypass Anti-Bot Kick dengan jeda 8 detik (agar tidak terkena "reconnected too fast")
+      // Bypass Anti-Bot Kick dengan reconnect otomatis (4.5s untuk tantangan reconnect, 8s untuk voltraz/sonar)
       if (!sudahSelesai && isAntiBot && retryVoltraz < 3) {
         retryVoltraz++
-        console.log(`[🛡️ BYPASS ANTIBOT ${username}] Terkena verifikasi AntiBot. Reconnect otomatis (${retryVoltraz}/3) dalam 8 detik...`)
+        const delay = (lowerKick.includes('reconnect to verify') || lowerKick.includes('please reconnect')) ? 4500 : 8000
+        console.log(`[🛡️ BYPASS ANTIBOT ${username}] Terkena verifikasi AntiBot. Reconnect otomatis (${retryVoltraz}/3) dalam ${Math.round(delay / 1000)} detik...`)
         if (interactionChannel) {
-          interactionChannel.send(`🛡️ **Verifikasi Anti-Bot Terdeteksi!**\n> *${alasan}*\n🔄 Menunggu jeda 8 detik lalu menyambung ulang (${retryVoltraz}/3) untuk verifikasi...`)
+          interactionChannel.send(`🛡️ **Verifikasi Anti-Bot Terdeteksi!**\n> *${alasan}*\n🔄 Menjawab verifikasi server: Menyambung ulang otomatis (${retryVoltraz}/3) dalam ${Math.round(delay / 1000)} detik...`)
         }
         clearTimeout(timeoutRegis)
         setTimeout(() => {
           startRegister()
-        }, 8000)
+        }, delay)
         return
       }
 
@@ -656,9 +661,13 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
       const lowerKick = alasan.toLowerCase()
       const isTemporaryIpBlock = lowerKick.includes('denied from entering') || lowerKick.includes('wait a few minutes')
-      const isVoltraz = lowerKick.includes('voltraz') || 
+      const isAntiBot = lowerKick.includes('voltraz') || 
                         lowerKick.includes('sonar') ||
                         lowerKick.includes('antibot') || 
+                        lowerKick.includes('anti-bot') || 
+                        lowerKick.includes('reconnect to verify') || 
+                        lowerKick.includes('please reconnect') || 
+                        lowerKick.includes('verification') || 
                         lowerKick.includes('bot verification') || 
                         lowerKick.includes('failed the bot') || 
                         lowerKick.includes('reconnected too fast')
@@ -674,11 +683,11 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         return
       }
 
-      const delayReconnect = isVoltraz ? 8000 : 35000
+      const delayReconnect = (lowerKick.includes('reconnect to verify') || lowerKick.includes('please reconnect')) ? 4500 : (isAntiBot ? 8000 : 35000)
 
       if (interactionChannel) {
-        if (isVoltraz) {
-          interactionChannel.send(`🛡️ **Verifikasi Anti-Bot Terdeteksi!** Akun **${username}**:\n> ${alasan.slice(0, 300)}\n🔄 Menunggu jeda 8 detik lalu menyambung ulang untuk verifikasi...`)
+        if (isAntiBot) {
+          interactionChannel.send(`🛡️ **Verifikasi Anti-Bot Terdeteksi!** Akun **${username}**:\n> ${alasan.slice(0, 300)}\n🔄 Menjawab verifikasi server: Menyambung ulang otomatis dalam ${Math.round(delayReconnect / 1000)} detik...`)
         } else {
           interactionChannel.send(`⚠️ **Bot Di-kick!** Akun **${username}** di-kick dari \`${hostServer}\`:\n> ${alasan.slice(0, 300)}\n*(Akan mencoba menyambung ulang dalam 35 detik...)*`)
         }
