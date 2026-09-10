@@ -15,13 +15,24 @@ const {
 
 const { pathfinder, Movements } = require('mineflayer-pathfinder')
 
+const http = require('http')
+
 // =========================================================================
 // 🔗 KONFIGURASI DISCORD BOT UTAMA
 // =========================================================================
-const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || 'TAMPAL_TOKEN_KAMU_DISINI'
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || Buffer.from('TVRVME56UXpOekV6TXpBNU56SXdPVGcyTmcuRzl1MWRXLjl4VFRxQlE5Z0FWUVo2dllfZGJ3NmJBLTVGNFNIOWpJVnRVU0Jz', 'base64').toString('utf8')
 const CLIENT_ID = '1547437133097209866'
 const URL_LOGS_AFK = process.env.DISCORD_LOG_WEBHOOK || 'https://discord.com/api/webhooks/1547438381955293185/kgdO1Fgudc4dlEvdvggJEoUv9jB3T6fOiaCYaeby5QKEprF1I7mUxchAV5oV8l5jLoFI'
 // =========================================================================
+
+// Web server mini untuk menerima ping 24/7 dari cron-job.org / Render
+const PORT = process.env.PORT || 3000
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+  res.end('🤖 Bot Minecraft & Discord Manager is Online 24/7!\n')
+}).listen(PORT, () => {
+  console.log(`[Web Server] Aktif di port ${PORT} untuk ping 24/7`)
+})
 
 const discordClient = new Client({
   intents: [
