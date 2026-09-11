@@ -478,8 +478,7 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
     })
 
     botInstance.on('respawn', () => {
-      console.log(`[🗺️ REGIS RESPAWN ${username}] Bot respawn/berpindah server (Terkonfirmasi sukses)!`)
-      notifyRegisterSuccess('Terkonfirmasi berpindah ke lobi/dunia server.')
+      console.log(`[🗺️ REGIS RESPAWN ${username}] Bot memuat dunia/dimensi server.`)
     })
 
     botInstance.once('spawn', () => {
@@ -1011,9 +1010,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     })
 
     botData.botInstance.on('respawn', () => {
-      if (!botData.loginSuccess) {
-        notifyLoginSuccess('Berhasil masuk dan berpindah ke sub-server/area baru.')
-      }
+      console.log(`[🗺️ RESPAWN ${username}] Bot memuat dunia / berpindah dimensi/sub-server.`)
 
       // HANYA PULANG JIKA BOT BENAR-BENAR MATI (Bukan karena TPA atau pindah server!) DAN SUDAH DI-SETHOME
       if (botData.wasDead) {
