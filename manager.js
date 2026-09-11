@@ -289,7 +289,6 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
     botInstance.on('message', (jsonMsg) => {
       const pesan = jsonMsg.toString().trim()
       if (pesan) {
-        console.log(`[💬 REGIS CHAT ${username}]: ${pesan}`)
         handleIncomingText(pesan)
       }
     })
@@ -306,10 +305,8 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
           titleStr = JSON.stringify(text)
         }
         titleStr = String(titleStr || '')
-        console.log(`[🏷️ REGIS TITLE ${username}]: ${titleStr}`)
         handleIncomingText(titleStr)
       } catch (err) {
-        console.log(`[⚠️ TITLE PARSE ERROR]: ${err.message}`)
       }
     })
 
@@ -326,11 +323,9 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
         }
         barStr = String(barStr || '').trim()
         if (barStr) {
-          console.log(`[📊 REGIS ACTIONBAR ${username}]: ${barStr}`)
           handleIncomingText(barStr)
         }
       } catch (err) {
-        console.log(`[⚠️ ACTIONBAR PARSE ERROR]: ${err.message}`)
       }
     })
 
@@ -829,7 +824,6 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           titleStr = JSON.stringify(text)
         }
         titleStr = String(titleStr || '')
-        console.log(`[🏷️ LOGIN TITLE ${username}]: ${titleStr}`)
         const lower = titleStr.toLowerCase()
 
         // Deteksi jika server meminta /register (akun belum terdaftar)
@@ -857,7 +851,6 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           notifyLoginSuccess(titleStr)
         }
       } catch (err) {
-        console.log(`[⚠️ TITLE LOGIN ERROR]: ${err.message}`)
       }
     })
 
@@ -874,25 +867,17 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         }
         barStr = String(barStr || '').trim()
         if (!barStr) return
-        console.log(`[📊 LOGIN ACTIONBAR ${username}]: ${barStr}`)
         const lower = barStr.toLowerCase()
         if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat') || lower.includes('logged')) {
           notifyLoginSuccess(barStr)
         }
       } catch (err) {
-        console.log(`[⚠️ ACTIONBAR LOGIN ERROR]: ${err.message}`)
       }
     })
 
     botData.botInstance.on('message', (jsonMsg) => {
       const pesan = jsonMsg.toString().trim()
       if (!pesan) return
-      
-      // Hanya log chat sebelum login selesai (untuk memantau proses autentikasi).
-      // Setelah login sukses, hentikan log chat pemain lain / join / quit agar console bersih dan super enteng!
-      if (!botData.loginSuccess) {
-        console.log(`[💬 LOGIN CHAT ${username}]: ${pesan}`)
-      }
 
       const lower = pesan.toLowerCase()
 
