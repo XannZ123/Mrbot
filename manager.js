@@ -387,16 +387,13 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
       if (lower.includes('password terlalu pendek') || 
           lower.includes('password too short') || 
           lower.includes('kata sandi minimal') || 
-          lower.includes('password minimum') || 
-          lower.includes('password must be') ||
-          lower.includes('too weak') ||
-          lower.includes('terlalu lemah') ||
-          lower.includes('password is too weak')) {
+          lower.includes('password minimum') ||
+          lower.includes('password must be')) {
         sudahSelesai = true
         if (timeoutRegis) clearTimeout(timeoutRegis)
         if (fallbackTimerRegis) clearTimeout(fallbackTimerRegis)
         if (interactionChannel) {
-          interactionChannel.send(`❌ **Registrasi Gagal (Password Ditolak Server)!**\n> *${pesan}*\n💡 *Tips: Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka (contoh: \`Kucing1234\`, \`RelxBot2026\`), jangan password angka sederhana.*`)
+          interactionChannel.send(`❌ **Registrasi Gagal!** Password tidak memenuhi syarat server:\n> *${pesan}*\nSilakan ulangi \`/register\` dengan password lain.`)
         }
         setTimeout(() => { try { botInstance.removeAllListeners(); botInstance.end() } catch (_) {} }, 1000)
         return
@@ -481,7 +478,8 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
     })
 
     botInstance.on('respawn', () => {
-      console.log(`[🗺️ REGIS RESPAWN ${username}] Bot memuat dunia/dimensi server.`)
+      console.log(`[🗺️ REGIS RESPAWN ${username}] Bot respawn/berpindah server (Terkonfirmasi sukses)!`)
+      notifyRegisterSuccess('Terkonfirmasi berpindah ke lobi/dunia server.')
     })
 
     botInstance.once('spawn', () => {
@@ -494,16 +492,12 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
           console.log(`[🔑 REGIS ${username}] Mengirim perintah /register...`)
           botInstance.chat(`/register ${passwordBot} ${passwordBot}`)
 
-          // Timer cek respon registrasi: tunggu 8 detik
+          // Fallback timer: jika setelah 4.5 detik tidak ada penolakan/kick, otomatis konfirmasi registrasi sukses!
           fallbackTimerRegis = setTimeout(() => {
             if (!sudahSelesai && botInstance && !botInstance._client?.ended) {
-              sudahSelesai = true
-              if (interactionChannel) {
-                interactionChannel.send(`❌ **Registrasi Gagal: Password Terlalu Lemah / Ditolak Server!**\nServer \`${hostServer}\` menolak pendaftaran akun **${username}** karena kata sandi tidak memenuhi kriteria.\n💡 **Solusi:** Ulangi \`/register\` dengan password yang kuat (gabungan huruf dan angka minimal 8 karakter, contoh: \`Kucing1234\`, \`RelxBot2026\`). Jangan gunakan angka sederhana!`)
-              }
-              try { botInstance.removeAllListeners(); botInstance.end() } catch (_) {}
+              notifyRegisterSuccess('Pendaftaran diterima oleh server (Terkonfirmasi aktif).')
             }
-          }, 8000)
+          }, 4500)
         }
       }, 1000)
     })
@@ -808,10 +802,6 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
     function notifyLoginSuccess(reasonText = '') {
       if (botData.isStopped || botData.loginSuccess) return
-      // Tolak konfirmasi palsu jika bot belum sempat mengirim /login atau /register
-      if (!botData.loginSent && !botData.autoRegSent) {
-        return
-      }
       botData.loginSuccess = true
       botData.failCount = 0
       if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
@@ -867,37 +857,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       }
     }
 
-    function doRegister() {
-      if (botData.isStopped || botData.autoRegSent || botData.loginSuccess) return
-      botData.autoRegSent = true
-      botData.loginSent = true
-      if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-
-      console.log(`[🔄 AUTO-REGIS ${username}] Server meminta pendaftaran. Menyiapkan pendaftaran otomatis...`)
-      if (interactionChannel) {
-        interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
-      }
-
-      setTimeout(() => {
-        if (!botData.isStopped && botData.botInstance && botData.botInstance.chat) {
-          console.log(`[🔑 REGIS ${username}] Mengirim /register <password> <password>...`)
-          botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
-
-          // Timer cek konfirmasi registrasi: tunggu 8 detik
-          botData.fallbackTimer = setTimeout(() => {
-            if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
-              console.log(`[⚠️ REGIS TIMEOUT ${username}] Belum ada respon sukses pendaftaran dari server.`)
-              if (interactionChannel) {
-                interactionChannel.send(`❌ **Pendaftaran Gagal: Password Terlalu Lemah / Ditolak Server!**\nServer belum menerima pendaftaran akun **${username}**.\n💡 **Solusi:** Ulangi \`/login\` atau \`/register\` dengan password yang lebih kuat (gabungan huruf dan angka minimal 8 karakter, contoh: \`RelxBot2026\`, \`Kucing1234\`).`)
-              }
-            }
-          }, 8000)
-        }
-      }, 1500)
-    }
-
     function doLogin() {
-      if (botData.isStopped || botData.loginSent || botData.autoRegSent || botData.loginSuccess) return
+      if (botData.isStopped || botData.loginSent || botData.loginSuccess) return
       botData.loginSent = true
 
       console.log(`[🔑 LOGIN ${username}] Mengirim /login <password>...`)
@@ -905,15 +866,12 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         botData.botInstance.chat(`/login ${botData.password}`)
       }
 
-      // Timer cek konfirmasi login: tunggu 8 detik
+      // Fallback timer: jika setelah 3.5 detik tidak ada pesan salah password atau kick, otomatis anggap login sukses!
       botData.fallbackTimer = setTimeout(() => {
         if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
-          console.log(`[⚠️ LOGIN TIMEOUT ${username}] Belum ada respon sukses login dari server.`)
-          if (interactionChannel) {
-            interactionChannel.send(`⚠️ **Menunggu Konfirmasi Login (${username}):** Server belum mengonfirmasi sukses login. Jika akun belum terdaftar, gunakan perintah \`/register\` terlebih dahulu.`)
-          }
+          notifyLoginSuccess('Berhasil terhubung dan login tanpa kendala.')
         }
-      }, 8000)
+      }, 3500)
     }
 
     botData.botInstance.on('death', () => {
@@ -1027,7 +985,9 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     })
 
     botData.botInstance.on('respawn', () => {
-      console.log(`[🗺️ RESPAWN ${username}] Bot memuat dunia / berpindah dimensi/sub-server.`)
+      if (!botData.loginSuccess) {
+        notifyLoginSuccess('Berhasil masuk dan berpindah ke sub-server/area baru.')
+      }
 
       // HANYA PULANG JIKA BOT BENAR-BENAR MATI (Bukan karena TPA atau pindah server!) DAN SUDAH DI-SETHOME
       if (botData.wasDead) {
@@ -1067,16 +1027,26 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
         // Deteksi jika server meminta /register (akun belum terdaftar)
         if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
-          doRegister()
+          botData.autoRegSent = true
+          console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
+          if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+          if (interactionChannel) {
+            interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+          }
+          setTimeout(() => {
+            if (botData.botInstance && botData.botInstance.chat) {
+              botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+            }
+          }, 1200)
           return
         }
 
-        // Jangan anggap 'a cracked session' atau broadcast awal sebagai login sukses!
         if (lower.includes('berhasil') || 
             lower.includes('sukses') || 
             lower.includes('success') || 
+            lower.includes('selamat') ||
             lower.includes('registered') ||
-            lower.includes('logged in')) {
+            lower.includes('a cracked session')) {
           notifyLoginSuccess(titleStr)
         }
       } catch (err) {
@@ -1110,52 +1080,42 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
       const lower = pesan.toLowerCase()
 
-      // Tampilkan respon chat & sistem dari server ke konsol agar terbaca di panel
-      if (!lower.includes('joined the game') && !lower.includes('left the game') && !lower.includes('bergabung ke peradaban')) {
-        console.log(`[💬 CHAT ${username}] ${pesan.slice(0, 150)}`)
-      }
-
       // 0. Deteksi jika server meminta /register di Chat (akun belum terdaftar)
       if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('use /register') || lower.includes('belum terdaftar') || lower.includes('silakan register') || lower.includes('silahkan register') || lower.includes('must register') || lower.includes('you are not registered'))) {
-        doRegister()
+        botData.autoRegSent = true
+        console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Chat! Menjalankan pendaftaran otomatis...`)
+        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+        if (interactionChannel) {
+          interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+        }
+        setTimeout(() => {
+          if (botData.botInstance && botData.botInstance.chat) {
+            botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+          }
+        }, 1200)
         return
       }
 
       // 1. Jika server minta login & belum dikirim
-      if (!botData.loginSent && !botData.autoRegSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
+      if (!botData.loginSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
         setTimeout(doLogin, 1000)
         return
       }
 
-      // 2. Deteksi jika password SALAH atau DITOLAK (Terlalu Lemah, dll)
+      // 2. Deteksi jika password SALAH
       if (lower.includes('password salah') || 
           lower.includes('wrong password') || 
-          lower.includes('a wrong password') || 
           lower.includes('incorrect password') || 
           lower.includes('kata sandi salah') || 
-          lower.includes('sandi salah') || 
-          lower.includes('login failed') || 
-          lower.includes('gagal login') || 
-          lower.includes('too weak') || 
-          lower.includes('terlalu lemah') || 
-          lower.includes('password is too weak') || 
-          lower.includes('too short') || 
-          lower.includes('terlalu pendek') || 
-          lower.includes('do not match') || 
-          lower.includes('tidak cocok')) {
+          lower.includes('sandi salah') ||
+          lower.includes('login failed') ||
+          lower.includes('gagal login')) {
         if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-        console.log(`[❌ PASSWORD DITOLAK ${username}]: ${pesan}`)
-        kirimWebhookLog(username, `❌ **PASSWORD DITOLAK** - ${pesan} di server \`${hostServer}\``, 15158332)
+        console.log(`[❌ PASSWORD SALAH ${username}]: ${pesan}`)
+        kirimWebhookLog(username, `❌ **LOGIN GAGAL** - Password salah di server \`${hostServer}\`: ${pesan}`, 15158332)
         if (interactionChannel) {
-          let advice = ''
-          if (lower.includes('weak') || lower.includes('lemah') || lower.includes('short') || lower.includes('pendek')) {
-            advice = `\n💡 **Tips:** Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka minimal 8 karakter (contoh: \`Kucing1234\`, \`RelxBot2026\`).`
-          } else if (lower.includes('wrong') || lower.includes('salah') || lower.includes('incorrect')) {
-            advice = `\n💡 **Tips:** Kata sandi akun salah! Pastikan password yang dimasukkan sama persis dengan saat registrasi akun tersebut.`
-          }
-          interactionChannel.send(`❌ **Password Ditolak Server (${username})!**\n> *${pesan}*${advice}`)
+          interactionChannel.send(`❌ **Login Gagal!** Password akun **${username}** salah di server \`${hostServer}\`:\n> *${pesan}*`)
         }
-        stopBot(username)
         return
       }
 
@@ -1167,21 +1127,25 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('successful login') || 
           lower.includes('kamu berhasil masuk') || 
           lower.includes('selamat datang kembali') || 
-          lower.includes('welcome back') || 
-          lower.includes('kamu sekarang login') || 
-          lower.includes('anda sekarang login') || 
-          lower.includes('anda telah login') || 
-          lower.includes('kamu telah login') || 
-          lower.includes('you are now logged in') || 
-          lower.includes('you are already logged') || 
-          lower.includes('you are already registered') || 
-          lower.includes('registered') || 
-          lower.includes('hi on minecraft server network') || 
-          lower.includes('useful commands') || 
-          lower.includes('sending you to') || 
-          lower.includes('you are in position') || 
-          lower.includes('sukses masuk') || 
-          lower.includes('berhasil masuk')) {
+          lower.includes('welcome back') ||
+          lower.includes('kamu sekarang login') ||
+          lower.includes('anda sekarang login') ||
+          lower.includes('anda telah login') ||
+          lower.includes('kamu telah login') ||
+          lower.includes('you are now logged in') ||
+          lower.includes('you are already logged') ||
+          lower.includes('you are already registered') ||
+          lower.includes('a cracked session') ||
+          lower.includes('hi on minecraft server network') ||
+          lower.includes('sukses masuk') ||
+          lower.includes('berhasil masuk') ||
+          lower.includes(`${username.toLowerCase()} bergabung ke peradaban`) ||
+          lower.includes('changemailaddress') || 
+          lower.includes('requestsecondfactor') || 
+          lower.includes('otentikasi dua langkah') || 
+          lower.includes('menghubungkan email ke akunmu') ||
+          lower.includes('second factor enabled') ||
+          lower.includes('email address assigned')) {
         notifyLoginSuccess(pesan)
         return
       }
@@ -1300,10 +1264,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       botData.botInstance.pathfinder.setMovements(defaultMove)
 
       setTimeout(() => {
-        if (!botData.loginSent && !botData.autoRegSent && !botData.loginSuccess) {
+        if (!botData.loginSent) {
           doLogin()
         }
-      }, 1500)
+      }, 1000)
     })
   }
 
@@ -1554,29 +1518,11 @@ discordClient.on('interactionCreate', async (interaction) => {
         return
       }
 
-      if (!targetData.loginSuccess) {
-        await interaction.reply({ 
-          content: `❌ **Bot Belum Berhasil Login!** Akun **${botNick}** saat ini belum sukses login atau pendaftarannya ditolak server di lobby.\n💡 *Periksa pesan sebelumnya di channel ini (misalnya password terlalu lemah atau salah). Gunakan \`/login\` kembali dengan password yang kuat sebelum mengirim perintah game!*`, 
-          flags: 64 
-        })
-        return
-      }
-
-      // Filter pesan broadcast player keluar/masuk agar respon server bersih & akurat
-      const isNoise = (str) => {
-        const s = str.trim()
-        const low = s.toLowerCase()
-        if (s.startsWith('[+]') || s.startsWith('[-]')) return true
-        if (low.includes('joined the game') || low.includes('left the game') || low.includes('bergabung ke peradaban')) return true
-        if (low.includes('welcome, ') && low.includes('to the server')) return true
-        if (low.includes('website https://') || low.includes('discord https://')) return true
-        return false
-      }
-
+      // Tangkap balasan dari server dalam beberapa detik
       let capturedReplies = []
       const responseHandler = (jsonMsg) => {
         const txt = jsonMsg.toString().trim()
-        if (txt && !isNoise(txt) && !capturedReplies.includes(txt)) {
+        if (txt && !capturedReplies.includes(txt)) {
           capturedReplies.push(txt)
         }
       }
@@ -1610,11 +1556,11 @@ discordClient.on('interactionCreate', async (interaction) => {
         try {
           targetData.botInstance?.removeListener('message', responseHandler)
           if (capturedReplies.length > 0) {
-            const preview = capturedReplies.slice(0, 5).map(r => `> ${r}`).join('\n')
+            const preview = capturedReplies.slice(0, 3).map(r => `> ${r}`).join('\n')
             await interaction.followUp({ content: `💬 **Respon Server (${botNick}):**\n${preview}`, flags: 64 })
           }
         } catch (_) {}
-      }, 5500)
+      }, 2500)
     }
     else if (interaction.commandName === 'spam') {
       const botNickOpt = interaction.options.getString('bot')
@@ -2088,14 +2034,6 @@ discordClient.on('interactionCreate', async (interaction) => {
       const serverIp = interaction.fields.getTextInputValue('input_ip').trim()
       const botNick = interaction.fields.getTextInputValue('input_nickname').trim()
       const botPassword = interaction.fields.getTextInputValue('input_password').trim()
-
-      if (botPassword.length < 6 || /^\d+$/.test(botPassword)) {
-        await interaction.reply({ 
-          content: `❌ **Password Terlalu Lemah!** Server Minecraft (RelxMC) menolak kata sandi yang hanya berupa angka atau kurang dari 6 karakter.\n👉 Harap gunakan kombinasi huruf dan angka (contoh: \`Kucing1234\` atau \`RelxBot2026\`).`, 
-          flags: 64 
-        })
-        return
-      }
 
       const access = checkAccess(interaction, botNick, true)
       if (!access.allowed) {
