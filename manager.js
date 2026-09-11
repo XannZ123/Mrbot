@@ -387,13 +387,16 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
       if (lower.includes('password terlalu pendek') || 
           lower.includes('password too short') || 
           lower.includes('kata sandi minimal') || 
-          lower.includes('password minimum') ||
-          lower.includes('password must be')) {
+          lower.includes('password minimum') || 
+          lower.includes('password must be') ||
+          lower.includes('too weak') ||
+          lower.includes('terlalu lemah') ||
+          lower.includes('password is too weak')) {
         sudahSelesai = true
         if (timeoutRegis) clearTimeout(timeoutRegis)
         if (fallbackTimerRegis) clearTimeout(fallbackTimerRegis)
         if (interactionChannel) {
-          interactionChannel.send(`❌ **Registrasi Gagal!** Password tidak memenuhi syarat server:\n> *${pesan}*\nSilakan ulangi \`/register\` dengan password lain.`)
+          interactionChannel.send(`❌ **Registrasi Gagal (Password Ditolak Server)!**\n> *${pesan}*\n💡 *Tips: Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka (contoh: \`Kucing1234\`, \`RelxBot2026\`), jangan password angka sederhana.*`)
         }
         setTimeout(() => { try { botInstance.removeAllListeners(); botInstance.end() } catch (_) {} }, 1000)
         return
@@ -1110,20 +1113,32 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         return
       }
 
-      // 2. Deteksi jika password SALAH
+      // 2. Deteksi jika password SALAH atau DITOLAK (Terlalu Lemah, dll)
       if (lower.includes('password salah') || 
           lower.includes('wrong password') || 
           lower.includes('incorrect password') || 
           lower.includes('kata sandi salah') || 
           lower.includes('sandi salah') ||
           lower.includes('login failed') ||
-          lower.includes('gagal login')) {
+          lower.includes('gagal login') ||
+          lower.includes('too weak') ||
+          lower.includes('terlalu lemah') ||
+          lower.includes('password is too weak') ||
+          lower.includes('too short') ||
+          lower.includes('terlalu pendek') ||
+          lower.includes('do not match') ||
+          lower.includes('tidak cocok')) {
         if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-        console.log(`[❌ PASSWORD SALAH ${username}]: ${pesan}`)
-        kirimWebhookLog(username, `❌ **LOGIN GAGAL** - Password salah di server \`${hostServer}\`: ${pesan}`, 15158332)
+        console.log(`[❌ PASSWORD DITOLAK ${username}]: ${pesan}`)
+        kirimWebhookLog(username, `❌ **PASSWORD DITOLAK** - ${pesan} di server \`${hostServer}\``, 15158332)
         if (interactionChannel) {
-          interactionChannel.send(`❌ **Login Gagal!** Password akun **${username}** salah di server \`${hostServer}\`:\n> *${pesan}*`)
+          let advice = ''
+          if (lower.includes('weak') || lower.includes('lemah') || lower.includes('short') || lower.includes('pendek')) {
+            advice = `\n💡 **Tips:** Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka minimal 8 karakter (contoh: \`Kucing1234\`, \`RelxBot2026\`), jangan password angka sederhana.`
+          }
+          interactionChannel.send(`❌ **Password Ditolak Server (${username})!**\n> *${pesan}*${advice}`)
         }
+        stopBot(username)
         return
       }
 
