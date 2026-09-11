@@ -461,26 +461,26 @@ function startSpam(username, pesan, jedaDetik = 15, antiDuplikat = true) {
       return
     }
 
-    const rawLines = targetData.spamMessage.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
-    if (rawLines.length === 0) return
+    // Otomatis gabung baris (Enter) menjadi 1 baris utuh agar CUMA 1X KIRIM di Minecraft!
+    let cleanMessage = targetData.spamMessage
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .join(' • ')
 
-    rawLines.forEach((line, idx) => {
-      setTimeout(() => {
-        if (!targetData.isSpamming || !targetData.botInstance || !targetData.botInstance.chat) return
-        let text = line
-        if (targetData.antiDuplikat && idx === rawLines.length - 1) {
-          const randomCode = Math.floor(100 + Math.random() * 900)
-          text = `${line} [${randomCode}]`
-        }
+    if (!cleanMessage) return
 
-        try {
-          targetData.botInstance.chat(text)
-          console.log(`[📢 SPAM ${username} (Baris ${idx + 1})]: ${text}`)
-        } catch (err) {
-          console.log(`[❌ GAGAL SPAM ${username}]: ${err.message}`)
-        }
-      }, idx * 3000)
-    })
+    if (targetData.antiDuplikat) {
+      const randomCode = Math.floor(100 + Math.random() * 900)
+      cleanMessage = `${cleanMessage} [${randomCode}]`
+    }
+
+    try {
+      targetData.botInstance.chat(cleanMessage)
+      console.log(`[📢 SPAM ${username} (1x Kirim)]: ${cleanMessage}`)
+    } catch (err) {
+      console.log(`[❌ GAGAL SPAM ${username}]: ${err.message}`)
+    }
   }
 
   // Kirim pesan pertama langsung
