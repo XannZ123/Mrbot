@@ -466,7 +466,7 @@ function startSpam(username, pesan, jedaDetik = 15, antiDuplikat = true) {
       .split(/\r?\n/)
       .map(l => l.trim())
       .filter(l => l.length > 0)
-      .join(' • ')
+      .join(' &f&l• ')
 
     if (!cleanMessage) return
 
