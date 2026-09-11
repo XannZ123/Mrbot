@@ -247,6 +247,24 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
 
     console.log(`[🎉 REGIS SUKSES ${username}] Berhasil terdaftar di ${hostServer}! ${sourceNote}`)
     kirimWebhookLog(username, `✅ **REGISTRASI BERHASIL** - Akun **${username}** terdaftar di \`${hostServer}\`.`, 3066993)
+
+    // 🔒 KUNCI KUOTA SLOT SEGERA SETELAH SUKSES DAFTAR!
+    if (ownerId) {
+      try {
+        const subs = loadSubscriptions()
+        if (subs[ownerId]) {
+          if (!subs[ownerId].assignedBots) subs[ownerId].assignedBots = []
+          if (!subs[ownerId].assignedBots.includes(username)) {
+            subs[ownerId].assignedBots.push(username)
+            saveSubscriptions(subs)
+            console.log(`[🔒 KUOTA LOCKED ${username}] Akun ${username} resmi mengunci slot user ${ownerId} (${subs[ownerId].assignedBots.length}/${subs[ownerId].maxBots}).`)
+          }
+        }
+      } catch (errLock) {
+        console.error('[Error lock quota on register]:', errLock.message)
+      }
+    }
+
     if (interactionChannel) {
       const detail = sourceNote ? `\n> *${sourceNote}*` : ''
       interactionChannel.send(`✅ **Registrasi Berhasil!** Akun **${username}** di server \`${hostServer}\` sudah sukses didaftarkan!${detail}\n👉 Silakan gunakan perintah \`/login\` untuk mulai mengaktifkan bot.`)
@@ -688,9 +706,22 @@ function stopBot(username) {
 }
 
 // FUNGSI TAHAP 2: LOGIN DENGAN IP BEBAS
-function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel, ownerId = null) {
+function loginMinecraftBot(username, hostServer, passwordBot, rawInteractionChannel, ownerId = null) {
   if (activeBots[username]) {
     stopBot(username)
+  }
+
+  // 🔒 Arahkan semua notifikasi & log bot HANYA ke private channel penyewa jika ada!
+  let interactionChannel = rawInteractionChannel
+  if (ownerId) {
+    try {
+      const subs = loadSubscriptions()
+      const sub = subs[ownerId]
+      if (sub && sub.channelId) {
+        const privCh = discordClient.channels.cache.get(sub.channelId)
+        if (privCh) interactionChannel = privCh
+      }
+    } catch (_) {}
   }
 
   let host = hostServer.trim()
@@ -1251,13 +1282,15 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         return
       }
 
-      // 6. Deteksi Status Teleportasi (Berhasil / Sedang Berlangsung)
-      if (lower.includes('teleporting') || 
+      // 6. Deteksi Status Teleportasi (Abaikan hitungan mundur detik 5,4,3,2,1 agar tidak spam)
+      const isCountdown = lower.includes('teleporting in') || lower.includes('seconds') || lower.includes('detik')
+      if (!isCountdown && (
+          lower.includes('teleporting') || 
           lower.includes('teleportasi') || 
           lower.includes('request accepted') || 
           lower.includes('accepted teleport') || 
           lower.includes('teleportation complete') || 
-          lower.includes('permintaan teleportasi diterima')) {
+          lower.includes('permintaan teleportasi diterima'))) {
         if (interactionChannel) {
           interactionChannel.send(`✨ **Status Teleport (${username}):**\n> ${pesan}`)
         }
@@ -1424,6 +1457,7 @@ discordClient.once('ready', async () => {
     new SlashCommandBuilder()
       .setName('sewa')
       .setDescription('Pengelolaan sewa slot bot & channel privat (Khusus Admin / Owner)')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .addSubcommand(sub =>
         sub.setName('tambah')
           .setDescription('Berikan slot sewa bot dan buatkan channel privat otomatis untuk user')
@@ -1812,11 +1846,27 @@ discordClient.on('interactionCreate', async (interaction) => {
       const isAdmin = isUserAdmin(member, user, guild)
       const subcommand = interaction.options.getSubcommand()
 
+      if (!isAdmin) {
+        await interaction.reply({ 
+          content: '❌ **Akses Ditolak!** Seluruh perintah manajemen `/sewa` hanya khusus untuk Owner / Administrator server!', 
+          flags: 64 
+        })
+        return
+      }
+
+      // Kunci lokasi: HANYA BOLEH DIJALANKAN DI CHANNEL #command-bot!
+      const currentChName = interaction.channel?.name?.toLowerCase() || ''
+      if (!currentChName.includes('command-bot')) {
+        const cmdCh = guild?.channels?.cache?.find(c => c.name.toLowerCase().includes('command-bot'))
+        const chMention = cmdCh ? `<#${cmdCh.id}>` : '`#command-bot`'
+        await interaction.reply({ 
+          content: `⚠️ **Salah Channel!** Seluruh perintah manajemen persewaan (\`/sewa\`) **hanya boleh dijalankan di channel ${chMention}** demi keamanan dan kerapian server!`, 
+          flags: 64 
+        })
+        return
+      }
+
       if (subcommand === 'tambah') {
-        if (!isAdmin) {
-          await interaction.reply({ content: '❌ Hanya Owner / Administrator yang dapat menambahkan sewa!', flags: 64 })
-          return
-        }
 
         await interaction.deferReply().catch((e) => console.log('[deferReply warn]:', e.message))
 
