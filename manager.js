@@ -857,8 +857,34 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       }
     }
 
+    function doRegister() {
+      if (botData.isStopped || botData.autoRegSent || botData.loginSuccess) return
+      botData.autoRegSent = true
+      botData.loginSent = true
+      if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+
+      console.log(`[🔄 AUTO-REGIS ${username}] Server meminta pendaftaran. Menyiapkan pendaftaran otomatis...`)
+      if (interactionChannel) {
+        interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+      }
+
+      setTimeout(() => {
+        if (!botData.isStopped && botData.botInstance && botData.botInstance.chat) {
+          console.log(`[🔑 REGIS ${username}] Mengirim /register <password> <password>...`)
+          botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+
+          // Fallback timer registrasi: tunggu 5.5 detik
+          botData.fallbackTimer = setTimeout(() => {
+            if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
+              notifyLoginSuccess('Pendaftaran dan login akun terkonfirmasi aktif.')
+            }
+          }, 5500)
+        }
+      }, 1500)
+    }
+
     function doLogin() {
-      if (botData.isStopped || botData.loginSent || botData.loginSuccess) return
+      if (botData.isStopped || botData.loginSent || botData.autoRegSent || botData.loginSuccess) return
       botData.loginSent = true
 
       console.log(`[🔑 LOGIN ${username}] Mengirim /login <password>...`)
@@ -866,12 +892,12 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         botData.botInstance.chat(`/login ${botData.password}`)
       }
 
-      // Fallback timer: jika setelah 3.5 detik tidak ada pesan salah password atau kick, otomatis anggap login sukses!
+      // Fallback timer: jika setelah 4.5 detik tidak ada pesan salah password atau kick, otomatis anggap login sukses!
       botData.fallbackTimer = setTimeout(() => {
         if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
           notifyLoginSuccess('Berhasil terhubung dan login tanpa kendala.')
         }
-      }, 3500)
+      }, 4500)
     }
 
     botData.botInstance.on('death', () => {
@@ -1027,17 +1053,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
         // Deteksi jika server meminta /register (akun belum terdaftar)
         if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
-          botData.autoRegSent = true
-          console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
-          if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-          if (interactionChannel) {
-            interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
-          }
-          setTimeout(() => {
-            if (botData.botInstance && botData.botInstance.chat) {
-              botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
-            }
-          }, 1200)
+          doRegister()
           return
         }
 
@@ -1080,24 +1096,19 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
       const lower = pesan.toLowerCase()
 
+      // Tampilkan respon chat & sistem dari server ke konsol agar terbaca di panel
+      if (!lower.includes('joined the game') && !lower.includes('left the game') && !lower.includes('bergabung ke peradaban')) {
+        console.log(`[💬 CHAT ${username}] ${pesan.slice(0, 150)}`)
+      }
+
       // 0. Deteksi jika server meminta /register di Chat (akun belum terdaftar)
       if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('use /register') || lower.includes('belum terdaftar') || lower.includes('silakan register') || lower.includes('silahkan register') || lower.includes('must register') || lower.includes('you are not registered'))) {
-        botData.autoRegSent = true
-        console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Chat! Menjalankan pendaftaran otomatis...`)
-        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-        if (interactionChannel) {
-          interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
-        }
-        setTimeout(() => {
-          if (botData.botInstance && botData.botInstance.chat) {
-            botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
-          }
-        }, 1200)
+        doRegister()
         return
       }
 
       // 1. Jika server minta login & belum dikirim
-      if (!botData.loginSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
+      if (!botData.loginSent && !botData.autoRegSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
         setTimeout(doLogin, 1000)
         return
       }
@@ -1136,7 +1147,11 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('you are already logged') ||
           lower.includes('you are already registered') ||
           lower.includes('a cracked session') ||
+          lower.includes('registered') ||
           lower.includes('hi on minecraft server network') ||
+          lower.includes('sending you to') ||
+          lower.includes('you are in position') ||
+          lower.includes('selamat datang di server') ||
           lower.includes('sukses masuk') ||
           lower.includes('berhasil masuk') ||
           lower.includes(`${username.toLowerCase()} bergabung ke peradaban`) ||
@@ -1264,10 +1279,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       botData.botInstance.pathfinder.setMovements(defaultMove)
 
       setTimeout(() => {
-        if (!botData.loginSent) {
+        if (!botData.loginSent && !botData.autoRegSent && !botData.loginSuccess) {
           doLogin()
         }
-      }, 1000)
+      }, 1500)
     })
   }
 
@@ -1536,17 +1551,20 @@ discordClient.on('interactionCreate', async (interaction) => {
         }
       }
       let extraInfo = ''
+      if (!targetData.loginSuccess) {
+        extraInfo += `\n⚠️ *Perhatian: Akun **${botNick}** saat ini masih dalam proses login/autentikasi di lobby server. Perintah tetap dikirim, namun jika belum berpindah arena, ulangi perintah setelah bot selesai login.*`
+      }
       if (gameCommand.toLowerCase().startsWith('/sethome')) {
         const parts = gameCommand.trim().split(/\s+/)
         const hName = parts[1] || '1'
         targetData.autoReturnCommand = `/home ${hName}`
         console.log(`[🏠 AUTO-RETURN ${botNick}] Titik home diset: ${targetData.autoReturnCommand}`)
-        extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
+        extraInfo += `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
       }
       else if (gameCommand.toLowerCase().startsWith('/delhome') || gameCommand.toLowerCase().startsWith('/deletehome') || gameCommand.toLowerCase().startsWith('/rmhome')) {
         targetData.autoReturnCommand = null
         console.log(`[🗑️ DELHOME ${botNick}] Titik home dihapus & auto-return dinonaktifkan.`)
-        extraInfo = `\n🗑️ *Titik home dihapus! Fitur auto-return untuk akun **${botNick}** dinonaktifkan.*`
+        extraInfo += `\n🗑️ *Titik home dihapus! Fitur auto-return untuk akun **${botNick}** dinonaktifkan.*`
       }
       targetData.botInstance.chat(gameCommand)
 
@@ -1560,7 +1578,7 @@ discordClient.on('interactionCreate', async (interaction) => {
             await interaction.followUp({ content: `💬 **Respon Server (${botNick}):**\n${preview}`, flags: 64 })
           }
         } catch (_) {}
-      }, 2500)
+      }, 5500)
     }
     else if (interaction.commandName === 'spam') {
       const botNickOpt = interaction.options.getString('bot')
