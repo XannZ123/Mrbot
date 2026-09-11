@@ -129,6 +129,8 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
       username: username,
       version: "1.20.2",
       auth: 'offline',
+      viewDistance: 'tiny',
+      checkTimeoutInterval: 90 * 1000,
       hideErrors: false
     })
 
@@ -533,7 +535,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     spamMessage: '',
     spamDelay: 6,
     antiDuplikat: true,
-    autoRegSent: false
+    autoRegSent: false,
+    lastSubServer: null
   }
 
   activeBots[username] = botData
@@ -560,6 +563,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       username: username,
       version: "1.20.2",
       auth: 'offline',
+      viewDistance: 'tiny',
+      checkTimeoutInterval: 90 * 1000,
       hideErrors: false
     })
 
@@ -587,6 +592,19 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           }
         }, 2000)
       }
+
+      // Otomatis kembali ke sub-server terakhir jika ada (misal: ecocpvp)
+      if (botData.lastSubServer) {
+        setTimeout(() => {
+          if (botData.loginSuccess && !botData.isStopped && botData.lastSubServer && botData.botInstance && botData.botInstance.chat) {
+            console.log(`[🔄 AUTO-SERVER ${username}] Menghubungkan kembali ke sub-server /server ${botData.lastSubServer}...`)
+            if (interactionChannel) {
+              interactionChannel.send(`🔄 Otomatis mengembalikan akun **${username}** ke arena \`/server ${botData.lastSubServer}\`...`)
+            }
+            botData.botInstance.chat(`/server ${botData.lastSubServer}`)
+          }
+        }, 3500)
+      }
     }
 
     function doLogin() {
@@ -606,17 +624,29 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       }, 3500)
     }
 
+    botData.botInstance.on('death', () => {
+      console.log(`[💀 DEATH ${username}] Bot mati di game! Mengirim perintah respawn...`)
+      if (interactionChannel) {
+        interactionChannel.send(`💀 **Bot Mati/Tereliminasi di Game!** Akun **${username}** mati. Melakukan respawn otomatis dalam 1.5 detik...`)
+      }
+      setTimeout(() => {
+        try {
+          if (botData.botInstance) botData.botInstance.respawn()
+        } catch (_) {}
+      }, 1500)
+    })
+
     botData.botInstance.on('error', (err) => {
       if (botData.isStopped) return
       botData.failCount++
-      console.log(`[❌ ERROR ${username}] (${botData.failCount}/4) ${err.message}`)
+      console.log(`[❌ ERROR ${username}] (${botData.failCount}/5) ${err.message}`)
       if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
       if (botData.spamTimer) {
         clearInterval(botData.spamTimer)
         botData.spamTimer = null
       }
-      if (interactionChannel) {
-        interactionChannel.send(`❌ **Koneksi Error!** Akun **${username}** gagal ke \`${hostServer}\`: ${err.message}`)
+      if (interactionChannel && !err.message.includes('ECONNRESET')) {
+        interactionChannel.send(`❌ **Koneksi Terkendala:** Akun **${username}**: ${err.message}`)
       }
     })
 
@@ -630,20 +660,21 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       }
 
       // Cek batas gagal berturut-turut agar tidak spam di Discord
-      if (botData.failCount >= 4) {
+      if (botData.failCount >= 5) {
         if (interactionChannel) {
-          interactionChannel.send(`🛑 **Auto-Reconnect Dihentikan:** Akun **${username}** gagal terhubung ke \`${hostServer}\` sebanyak 4 kali berturut-turut. Bot dihentikan agar tidak spam channel. Silakan periksa status/IP server lalu gunakan \`/login\` kembali.`)
+          interactionChannel.send(`🛑 **Auto-Reconnect Dihentikan:** Akun **${username}** gagal terhubung ke \`${hostServer}\` sebanyak 5 kali berturut-turut. Bot dihentikan agar tidak spam channel. Silakan gunakan \`/login\` kembali.`)
         }
         stopBot(username)
         return
       }
 
+      const delayReconnect = 6000
       if (interactionChannel) {
-        interactionChannel.send(`🔴 **Bot Terputus!** Akun **${username}** terputus dari \`${hostServer}\` (${reason}). Menghubungkan ulang dalam 35 detik...`)
+        interactionChannel.send(`🔄 **Koneksi Terputus (${reason})!** Akun **${username}** menyambung ulang otomatis dalam 6 detik...`)
       }
       botData.reconnectTimer = setTimeout(() => { 
         if (!botData.isStopped) createBot(true) 
-      }, 35000)
+      }, delayReconnect)
     })
 
     botData.botInstance.on('kicked', (reason) => {
@@ -903,6 +934,13 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('could not connect') ||
           lower.includes('tidak dapat terhubung') ||
           (lower.includes('welcome to') && botData.loginSuccess)) {
+        if (lower.includes('sending you to')) {
+          const match = pesan.match(/sending you to\s+([a-zA-Z0-9_-]+)/i)
+          if (match && match[1]) {
+            botData.lastSubServer = match[1]
+            console.log(`[🌐 SUB-SERVER ${username}] Menyimpan arena sub-server: ${botData.lastSubServer}`)
+          }
+        }
         if (interactionChannel) {
           interactionChannel.send(`🌐 **Info Server (${username}):**\n> ${pesan}`)
         }
@@ -1093,6 +1131,13 @@ discordClient.on('interactionCreate', async (interaction) => {
       }
 
       targetData.botInstance.on('message', responseHandler)
+      if (gameCommand.toLowerCase().startsWith('/server ')) {
+        const sub = gameCommand.split(' ')[1]
+        if (sub) {
+          targetData.lastSubServer = sub.trim()
+          console.log(`[🌐 SUB-SERVER ${botNick}] Diset via /menu: ${targetData.lastSubServer}`)
+        }
+      }
       targetData.botInstance.chat(gameCommand)
 
       await interaction.reply({ content: `✅ Perintah \`${gameCommand}\` berhasil dikirim ke **${botNick}**!`, flags: 64 })
