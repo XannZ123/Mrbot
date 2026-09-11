@@ -1272,6 +1272,11 @@ discordClient.on('interactionCreate', async (interaction) => {
         console.log(`[🏠 AUTO-RETURN ${botNick}] Titik home diset: ${targetData.autoReturnCommand}`)
         extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
       }
+      else if (gameCommand.toLowerCase().startsWith('/delhome') || gameCommand.toLowerCase().startsWith('/deletehome') || gameCommand.toLowerCase().startsWith('/rmhome')) {
+        targetData.autoReturnCommand = null
+        console.log(`[🗑️ DELHOME ${botNick}] Titik home dihapus & auto-return dinonaktifkan.`)
+        extraInfo = `\n🗑️ *Titik home dihapus! Fitur auto-return untuk akun **${botNick}** dinonaktifkan.*`
+      }
       targetData.botInstance.chat(gameCommand)
 
       await interaction.reply({ content: `✅ Perintah \`${gameCommand}\` berhasil dikirim ke **${botNick}**!${extraInfo}`, flags: 64 })
