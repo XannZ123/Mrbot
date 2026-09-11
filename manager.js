@@ -1,3 +1,14 @@
+// =========================================================================
+// 🛡️ GLOBAL PROCESS CRASH SHIELD (ANTI-CRASH 24/7)
+// =========================================================================
+process.on('uncaughtException', (err) => {
+  console.error('[🛡️ CRASH SHIELD] Uncaught Exception dicegah:', err?.message || err)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[🛡️ CRASH SHIELD] Unhandled Rejection dicegah:', reason?.message || reason)
+})
+
 const mineflayer = require('mineflayer')
 const fs = require('fs')
 const path = require('path')
@@ -1400,7 +1411,8 @@ discordClient.once('ready', async () => {
 })
 
 discordClient.on('interactionCreate', async (interaction) => {
-  if (interaction.isChatInputCommand()) {
+  try {
+    if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'register') {
       const access = checkAccess(interaction, null, false)
       if (!access.allowed) {
@@ -1755,7 +1767,7 @@ discordClient.on('interactionCreate', async (interaction) => {
           return
         }
 
-        await interaction.deferReply()
+        await interaction.deferReply().catch((e) => console.log('[deferReply warn]:', e.message))
 
         const targetUser = interaction.options.getUser('user')
         const slot = interaction.options.getInteger('slot')
@@ -1809,7 +1821,7 @@ discordClient.on('interactionCreate', async (interaction) => {
             })
           } catch (err) {
             console.error('[Error Create Channel]:', err)
-            await interaction.editReply({ content: `❌ Gagal membuat private channel: ${err.message}. Pastikan bot memiliki permission \`Manage Channels\`!` })
+            await interaction.editReply({ content: `❌ Gagal membuat private channel: ${err.message}. Pastikan bot memiliki permission \`Manage Channels\`!` }).catch(() => {})
             return
           }
         }
@@ -1855,7 +1867,7 @@ discordClient.on('interactionCreate', async (interaction) => {
 
         await interaction.editReply({
           content: `✅ **Sewa Berhasil Ditambahkan!**\n• User: <@${targetUser.id}>\n• Kuota: **${slot} Bot**\n• Durasi: **${durasiStr}** (s/d <t:${expireUnix}:R>)\n• Private Channel: <#${channel.id}>`
-        })
+        }).catch(() => {})
       }
       else if (subcommand === 'cek') {
         const targetUser = interaction.options.getUser('user') || interaction.user
@@ -2071,6 +2083,9 @@ discordClient.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: `❌ Gagal mengaktifkan spam chat: ${res.reason}`, flags: 64 })
       }
     }
+  }
+  } catch (err) {
+    console.error('[Error interactionCreate]:', err?.message || err)
   }
 })
 

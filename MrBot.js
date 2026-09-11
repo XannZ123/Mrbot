@@ -1,4 +1,15 @@
-﻿const mineflayer = require('mineflayer')
+// =========================================================================
+// 🛡️ GLOBAL PROCESS CRASH SHIELD (ANTI-CRASH 24/7)
+// =========================================================================
+process.on('uncaughtException', (err) => {
+  console.error('[🛡️ CRASH SHIELD] Uncaught Exception dicegah:', err?.message || err)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[🛡️ CRASH SHIELD] Unhandled Rejection dicegah:', reason?.message || reason)
+})
+
+const mineflayer = require('mineflayer')
 const os = require('os')
 const fs = require('fs')
 const path = require('path')
