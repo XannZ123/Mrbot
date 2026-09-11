@@ -289,18 +289,42 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
     })
 
     botInstance.on('title', (text) => {
-      if (text) {
-        const titleStr = typeof text === 'string' ? text : (text.text || JSON.stringify(text))
+      if (!text) return
+      try {
+        let titleStr = ''
+        if (typeof text === 'string') {
+          titleStr = text
+        } else if (text && typeof text.toString === 'function' && text.toString() !== '[object Object]') {
+          titleStr = text.toString()
+        } else {
+          titleStr = JSON.stringify(text)
+        }
+        titleStr = String(titleStr || '')
         console.log(`[🏷️ REGIS TITLE ${username}]: ${titleStr}`)
         handleIncomingText(titleStr)
+      } catch (err) {
+        console.log(`[⚠️ TITLE PARSE ERROR]: ${err.message}`)
       }
     })
 
     botInstance.on('actionBar', (jsonMsg) => {
-      const barStr = jsonMsg ? jsonMsg.toString().trim() : ''
-      if (barStr) {
-        console.log(`[📊 REGIS ACTIONBAR ${username}]: ${barStr}`)
-        handleIncomingText(barStr)
+      if (!jsonMsg) return
+      try {
+        let barStr = ''
+        if (typeof jsonMsg === 'string') {
+          barStr = jsonMsg
+        } else if (jsonMsg && typeof jsonMsg.toString === 'function' && jsonMsg.toString() !== '[object Object]') {
+          barStr = jsonMsg.toString()
+        } else {
+          barStr = JSON.stringify(jsonMsg)
+        }
+        barStr = String(barStr || '').trim()
+        if (barStr) {
+          console.log(`[📊 REGIS ACTIONBAR ${username}]: ${barStr}`)
+          handleIncomingText(barStr)
+        }
+      } catch (err) {
+        console.log(`[⚠️ ACTIONBAR PARSE ERROR]: ${err.message}`)
       }
     })
 
@@ -746,44 +770,68 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
     botData.botInstance.on('title', (text) => {
       if (!text || botData.isStopped || botData.loginSuccess) return
-      const titleStr = typeof text === 'string' ? text : (text.text || JSON.stringify(text))
-      console.log(`[🏷️ LOGIN TITLE ${username}]: ${titleStr}`)
-      const lower = titleStr.toLowerCase()
-
-      // Deteksi jika server meminta /register (akun belum terdaftar)
-      if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
-        botData.autoRegSent = true
-        console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
-        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
-        if (interactionChannel) {
-          interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+      try {
+        let titleStr = ''
+        if (typeof text === 'string') {
+          titleStr = text
+        } else if (text && typeof text.toString === 'function' && text.toString() !== '[object Object]') {
+          titleStr = text.toString()
+        } else {
+          titleStr = JSON.stringify(text)
         }
-        setTimeout(() => {
-          if (botData.botInstance && botData.botInstance.chat) {
-            botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
-          }
-        }, 1200)
-        return
-      }
+        titleStr = String(titleStr || '')
+        console.log(`[🏷️ LOGIN TITLE ${username}]: ${titleStr}`)
+        const lower = titleStr.toLowerCase()
 
-      if (lower.includes('berhasil') || 
-          lower.includes('sukses') || 
-          lower.includes('success') || 
-          lower.includes('selamat') ||
-          lower.includes('registered') ||
-          lower.includes('a cracked session')) {
-        notifyLoginSuccess(titleStr)
+        // Deteksi jika server meminta /register (akun belum terdaftar)
+        if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
+          botData.autoRegSent = true
+          console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
+          if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+          if (interactionChannel) {
+            interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+          }
+          setTimeout(() => {
+            if (botData.botInstance && botData.botInstance.chat) {
+              botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+            }
+          }, 1200)
+          return
+        }
+
+        if (lower.includes('berhasil') || 
+            lower.includes('sukses') || 
+            lower.includes('success') || 
+            lower.includes('selamat') ||
+            lower.includes('registered') ||
+            lower.includes('a cracked session')) {
+          notifyLoginSuccess(titleStr)
+        }
+      } catch (err) {
+        console.log(`[⚠️ TITLE LOGIN ERROR]: ${err.message}`)
       }
     })
 
     botData.botInstance.on('actionBar', (jsonMsg) => {
-      if (botData.isStopped || botData.loginSuccess) return
-      const barStr = jsonMsg ? jsonMsg.toString().trim() : ''
-      if (!barStr) return
-      console.log(`[📊 LOGIN ACTIONBAR ${username}]: ${barStr}`)
-      const lower = barStr.toLowerCase()
-      if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat') || lower.includes('logged')) {
-        notifyLoginSuccess(barStr)
+      if (!jsonMsg || botData.isStopped || botData.loginSuccess) return
+      try {
+        let barStr = ''
+        if (typeof jsonMsg === 'string') {
+          barStr = jsonMsg
+        } else if (jsonMsg && typeof jsonMsg.toString === 'function' && jsonMsg.toString() !== '[object Object]') {
+          barStr = jsonMsg.toString()
+        } else {
+          barStr = JSON.stringify(jsonMsg)
+        }
+        barStr = String(barStr || '').trim()
+        if (!barStr) return
+        console.log(`[📊 LOGIN ACTIONBAR ${username}]: ${barStr}`)
+        const lower = barStr.toLowerCase()
+        if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat') || lower.includes('logged')) {
+          notifyLoginSuccess(barStr)
+        }
+      } catch (err) {
+        console.log(`[⚠️ ACTIONBAR LOGIN ERROR]: ${err.message}`)
       }
     })
 
