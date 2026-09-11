@@ -1,4 +1,6 @@
 const mineflayer = require('mineflayer')
+const fs = require('fs')
+const path = require('path')
 const { 
   Client, 
   GatewayIntentBits, 
@@ -10,12 +12,128 @@ const {
   REST, 
   Routes,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType,
+  PermissionFlagsBits
 } = require('discord.js')
 
 const { pathfinder, Movements } = require('mineflayer-pathfinder')
 
 const http = require('http')
+
+const activeBots = {}
+
+// =========================================================================
+// 📦 SISTEM MANAJEMEN SEWA SLOT & KUOTA BOT
+// =========================================================================
+const SUBSCRIPTIONS_FILE = path.join(__dirname, 'subscriptions.json')
+
+function loadSubscriptions() {
+  try {
+    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
+      const data = fs.readFileSync(SUBSCRIPTIONS_FILE, 'utf8')
+      return JSON.parse(data)
+    }
+  } catch (err) {
+    console.error('[Error loadSubscriptions]:', err.message)
+  }
+  return {}
+}
+
+function saveSubscriptions(data) {
+  try {
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(data, null, 2), 'utf8')
+  } catch (err) {
+    console.error('[Error saveSubscriptions]:', err.message)
+  }
+}
+
+function parseDuration(str) {
+  if (!str) return 24 * 60 * 60 * 1000 // default 24 jam
+  const s = String(str).toLowerCase().trim()
+  const num = parseInt(s.replace(/[^0-9]/g, ''), 10) || 1
+  if (s.includes('d') || s.includes('hari') || s.includes('day')) {
+    return num * 24 * 60 * 60 * 1000
+  }
+  if (s.includes('h') || s.includes('jam') || s.includes('hour')) {
+    return num * 60 * 60 * 1000
+  }
+  if (s.includes('m') || s.includes('menit') || s.includes('min')) {
+    return num * 60 * 1000
+  }
+  return num * 60 * 60 * 1000
+}
+
+function isUserAdmin(member, user, guild) {
+  if (!user) return false
+  if (guild && guild.ownerId === user.id) return true
+  if (member && member.permissions && member.permissions.has(PermissionFlagsBits.Administrator)) return true
+  return false
+}
+
+function checkAccess(interaction, botNick = null, isNewBot = false) {
+  const user = interaction.user
+  const member = interaction.member
+  const guild = interaction.guild
+
+  // Owner / Admin punya hak super akses di mana saja
+  if (isUserAdmin(member, user, guild)) {
+    return { allowed: true, isAdmin: true }
+  }
+
+  const subs = loadSubscriptions()
+  const sub = subs[user.id]
+
+  if (!sub) {
+    return { 
+      allowed: false, 
+      reason: '❌ **Akses Ditolak!** Anda belum memiliki kuota sewa bot aktif. Silakan hubungi Owner untuk menyewa slot bot!' 
+    }
+  }
+
+  const now = Date.now()
+  if (now > sub.expiresAt) {
+    return { 
+      allowed: false, 
+      reason: `❌ **Masa Sewa Habis!** Masa sewa bot Anda telah berakhir pada <t:${Math.floor(sub.expiresAt / 1000)}:R>. Silakan hubungi Owner untuk perpanjangan sewa!` 
+    }
+  }
+
+  // Wajib jalankan perintah di channel privat miliknya
+  if (sub.channelId && interaction.channelId !== sub.channelId) {
+    return { 
+      allowed: false, 
+      reason: `⚠️ **Salah Channel!** Untuk menjaga privasi, silakan jalankan perintah bot ini di channel privat Anda: <#${sub.channelId}>` 
+    }
+  }
+
+  // Jika sedang login/register bot baru, cek batas kuota slot
+  if (isNewBot && botNick) {
+    const currentlyActiveCount = Object.values(activeBots).filter(b => b.ownerId === user.id && !b.isStopped).length
+    const isAlreadyMine = activeBots[botNick] && activeBots[botNick].ownerId === user.id && !activeBots[botNick].isStopped
+
+    if (!isAlreadyMine) {
+      if (currentlyActiveCount >= sub.maxBots) {
+        return { 
+          allowed: false, 
+          reason: `❌ **Kuota Slot Penuh!** Kuota sewa Anda hanya untuk **${sub.maxBots} bot** sekaligus (saat ini aktif: **${currentlyActiveCount} bot**). Gunakan \`/stop\` terlebih dahulu atau hubungi Owner jika ingin upgrade slot!` 
+        }
+      }
+    }
+  }
+
+  // Jika botNick sedang dipakai orang lain
+  if (botNick && activeBots[botNick]) {
+    if (activeBots[botNick].ownerId && activeBots[botNick].ownerId !== user.id) {
+      return { 
+        allowed: false, 
+        reason: `❌ **Bukan Bot Anda!** Bot **${botNick}** ini milik penyewa lain dan tidak dapat Anda kontrol.` 
+      }
+    }
+  }
+
+  return { allowed: true, isAdmin: false, sub: sub }
+}
 
 // =========================================================================
 // 🔗 KONFIGURASI DISCORD BOT UTAMA
@@ -42,8 +160,6 @@ const discordClient = new Client({
   ]
 })
 
-const activeBots = {}
-
 function kirimWebhookLog(username, pesan, warna = 16777215) {
   if (!URL_LOGS_AFK || URL_LOGS_AFK.includes('TAMPAL_URL')) return
   fetch(URL_LOGS_AFK, {
@@ -69,9 +185,20 @@ function jalankanSimulasiManusia(botInstance) {
 }
 
 // FUNGSI TAHAP 1: REGISTRASI DENGAN DETEKSI SUKSES REAL-TIME & BYPASS ANTIBOT
-function registerMinecraftBot(username, hostServer, passwordBot, interactionChannel) {
+function registerMinecraftBot(username, hostServer, passwordBot, interactionChannel, ownerId = null) {
   if (activeBots[username]) {
     stopBot(username)
+  }
+
+  if (ownerId) {
+    const subs = loadSubscriptions()
+    if (subs[ownerId]) {
+      if (!subs[ownerId].assignedBots) subs[ownerId].assignedBots = []
+      if (!subs[ownerId].assignedBots.includes(username)) {
+        subs[ownerId].assignedBots.push(username)
+        saveSubscriptions(subs)
+      }
+    }
   }
 
   let host = hostServer.trim()
@@ -540,7 +667,7 @@ function stopBot(username) {
 }
 
 // FUNGSI TAHAP 2: LOGIN DENGAN IP BEBAS
-function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel) {
+function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel, ownerId = null) {
   if (activeBots[username]) {
     stopBot(username)
   }
@@ -559,6 +686,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     port: port,
     password: passwordBot,
     channel: interactionChannel,
+    ownerId: ownerId,
     botInstance: null,
     loginSent: false,
     loginSuccess: false,
@@ -580,6 +708,17 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
   }
 
   activeBots[username] = botData
+
+  if (ownerId) {
+    const subs = loadSubscriptions()
+    if (subs[ownerId]) {
+      if (!subs[ownerId].assignedBots) subs[ownerId].assignedBots = []
+      if (!subs[ownerId].assignedBots.includes(username)) {
+        subs[ownerId].assignedBots.push(username)
+        saveSubscriptions(subs)
+      }
+    }
+  }
 
   function createBot(isReconnect = false) {
     if (botData.isStopped) return
@@ -1115,6 +1254,58 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 }
 
 // =========================================================================
+// ⏰ BACKGROUND TIMER CEK KEDALUWARSA SEWA (SETIAP 30 DETIK)
+// =========================================================================
+setInterval(async () => {
+  try {
+    const subs = loadSubscriptions()
+    const now = Date.now()
+    let changed = false
+
+    for (const userId of Object.keys(subs)) {
+      const sub = subs[userId]
+      if (sub.expiresAt && now > sub.expiresAt && !sub.expiredNotified) {
+        sub.expiredNotified = true
+        changed = true
+
+        console.log(`[⏰ SEWA EXPIRED] Sewa user ${sub.username || userId} telah habis! Menghentikan semua bot...`)
+
+        let stoppedNames = []
+        Object.keys(activeBots).forEach(name => {
+          if (activeBots[name].ownerId === userId) {
+            stoppedNames.push(name)
+            stopBot(name)
+          }
+        })
+
+        if (sub.channelId) {
+          try {
+            const channel = discordClient.channels.cache.get(sub.channelId) || await discordClient.channels.fetch(sub.channelId).catch(() => null)
+            if (channel) {
+              const botsDetail = stoppedNames.length > 0 ? `Semua bot Anda (\`${stoppedNames.join(', ')}\`) telah dihentikan secara otomatis.` : 'Tidak ada bot yang sedang berjalan.'
+              await channel.send(
+                `⏰ **PERHATIAN: MASA SEWA TELAH HABIS!**\n` +
+                `<@${userId}> Masa sewa bot Anda telah selesai pada <t:${Math.floor(sub.expiresAt / 1000)}:F>.\n` +
+                `• ${botsDetail}\n` +
+                `👉 Silakan hubungi Owner jika ingin memperpanjang sewa dan mengaktifkan bot kembali. Terima kasih!`
+              )
+            }
+          } catch (errCh) {
+            console.error('[Error kirim notif expired]:', errCh.message)
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      saveSubscriptions(subs)
+    }
+  } catch (err) {
+    console.error('[Error Expiry Check]:', err.message)
+  }
+}, 30000)
+
+// =========================================================================
 // 🌐 DISCORD INTERACTIONS & SLASH COMMANDS
 // =========================================================================
 discordClient.once('ready', async () => {
@@ -1142,7 +1333,7 @@ discordClient.once('ready', async () => {
       .addStringOption(option => 
         option.setName('pesan').setDescription('Pesan promosi').setRequired(false))
       .addIntegerOption(option => 
-        option.setName('jeda').setDescription('Cooldown / jeda dalam detik (default: 15)').setRequired(false))
+        option.setName('jeda').setDescription('Cooldown / jeda dalam detik (default: 35)').setRequired(false))
       .addBooleanOption(option => 
         option.setName('anti_duplikat').setDescription('Kode unik anti kick (default: True)').setRequired(false)),
     new SlashCommandBuilder()
@@ -1157,13 +1348,37 @@ discordClient.once('ready', async () => {
         option.setName('bot').setDescription('Nama bot (atau "semua" untuk hentikan semua bot)').setRequired(true)),
     new SlashCommandBuilder()
       .setName('list')
-      .setDescription('Lihat daftar semua bot yang sedang aktif')
+      .setDescription('Lihat daftar semua bot yang sedang aktif'),
+    new SlashCommandBuilder()
+      .setName('sewa')
+      .setDescription('Pengelolaan sewa slot bot & channel privat (Khusus Admin / Owner)')
+      .addSubcommand(sub =>
+        sub.setName('tambah')
+          .setDescription('Berikan slot sewa bot dan buatkan channel privat otomatis untuk user')
+          .addUserOption(opt => opt.setName('user').setDescription('Pilih user penyewa').setRequired(true))
+          .addIntegerOption(opt => opt.setName('slot').setDescription('Jumlah slot / bot yang diizinkan (misal: 1 atau 2)').setRequired(true))
+          .addStringOption(opt => opt.setName('durasi').setDescription('Durasi sewa (contoh: 24h, 1d, 3d, 7d)').setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName('cek')
+          .setDescription('Cek sisa durasi sewa, kuota slot, dan bot milik penyewa')
+          .addUserOption(opt => opt.setName('user').setDescription('Pilih user penyewa (kosongkan untuk cek diri sendiri)').setRequired(false))
+      )
+      .addSubcommand(sub =>
+        sub.setName('stop')
+          .setDescription('Hentikan masa sewa penyewa dan matikan bot miliknya')
+          .addUserOption(opt => opt.setName('user').setDescription('Pilih user penyewa yang ingin dihentikan').setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName('list')
+          .setDescription('Lihat daftar seluruh penyewa aktif di server')
+      )
   ]
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN)
   try {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands })
-    console.log('[Discord] Berhasil mendaftarkan command /register, /login, /menu, /spam, /stopspam, /stop, & /list!')
+    console.log('[Discord] Berhasil mendaftarkan command /register, /login, /menu, /spam, /stopspam, /stop, /list, & /sewa!')
   } catch (error) {
     console.error('Gagal daftar command:', error)
   }
@@ -1172,6 +1387,12 @@ discordClient.once('ready', async () => {
 discordClient.on('interactionCreate', async (interaction) => {
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'register') {
+      const access = checkAccess(interaction, null, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
       const modal = new ModalBuilder()
         .setCustomId('modal_register_bot')
         .setTitle('📝 Registrasi Akun Bot ke Server')
@@ -1205,6 +1426,12 @@ discordClient.on('interactionCreate', async (interaction) => {
       await interaction.showModal(modal)
     }
     else if (interaction.commandName === 'login') {
+      const access = checkAccess(interaction, null, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
       const modal = new ModalBuilder()
         .setCustomId('modal_login_bot')
         .setTitle('🔑 Login Bot ke Server')
@@ -1240,6 +1467,12 @@ discordClient.on('interactionCreate', async (interaction) => {
     else if (interaction.commandName === 'menu') {
       const botNick = interaction.options.getString('bot').trim()
       const gameCommand = interaction.options.getString('perintah').trim()
+
+      const access = checkAccess(interaction, botNick, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
 
       const targetData = activeBots[botNick]
       if (!targetData || !targetData.botInstance || !targetData.botInstance.chat) {
@@ -1297,11 +1530,17 @@ discordClient.on('interactionCreate', async (interaction) => {
 
       // Jika dijalankan langsung /spam tanpa pesan, BUKA FORM POPUP MODAL LENGKAP!
       if (!pesanOpt) {
+        const access = checkAccess(interaction, botNickOpt ? botNickOpt.trim() : null, false)
+        if (!access.allowed) {
+          await interaction.reply({ content: access.reason, flags: 64 })
+          return
+        }
+
         const modal = new ModalBuilder()
           .setCustomId('modal_spam_bot')
           .setTitle('📢 Pengaturan Spam Chat & Cooldown')
 
-        const defaultBot = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots)[0] || '')
+        const defaultBot = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots).find(k => activeBots[k].ownerId === interaction.user.id) || Object.keys(activeBots)[0] || '')
 
         modal.addComponents(
           new ActionRowBuilder().addComponents(
@@ -1326,8 +1565,8 @@ discordClient.on('interactionCreate', async (interaction) => {
               .setCustomId('input_jeda')
               .setLabel('Cooldown / Jeda Waktu (Detik)')
               .setStyle(TextInputStyle.Short)
-              .setPlaceholder('Contoh: 15 (default: 15 detik, min: 3)')
-              .setValue('15')
+              .setPlaceholder('Contoh: 35 (disarankan minimal 30-35 detik)')
+              .setValue('35')
               .setRequired(false)
           ),
           new ActionRowBuilder().addComponents(
@@ -1344,9 +1583,15 @@ discordClient.on('interactionCreate', async (interaction) => {
         return
       }
 
-      const botNick = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots)[0] || '')
+      const botNick = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots).find(k => activeBots[k].ownerId === interaction.user.id) || Object.keys(activeBots)[0] || '')
+      const access = checkAccess(interaction, botNick, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
       const pesan = pesanOpt.trim()
-      const jeda = interaction.options.getInteger('jeda') || 15
+      const jeda = interaction.options.getInteger('jeda') || 35
       const antiDuplikat = interaction.options.getBoolean('anti_duplikat') !== false
 
       if (jeda < 3) {
@@ -1366,16 +1611,28 @@ discordClient.on('interactionCreate', async (interaction) => {
     }
     else if (interaction.commandName === 'stopspam') {
       const botNick = interaction.options.getString('bot').trim()
+      const member = interaction.member
+      const user = interaction.user
+      const guild = interaction.guild
+      const isAdmin = isUserAdmin(member, user, guild)
 
       if (botNick.toLowerCase() === 'semua' || botNick.toLowerCase() === 'all') {
         let count = 0
         Object.keys(activeBots).forEach(name => {
-          if (activeBots[name].isSpamming) {
-            stopSpam(name)
-            count++
+          if (isAdmin || activeBots[name].ownerId === user.id) {
+            if (activeBots[name].isSpamming) {
+              stopSpam(name)
+              count++
+            }
           }
         })
         await interaction.reply({ content: `🛑 Spam chat telah dihentikan pada **${count}** bot.` })
+        return
+      }
+
+      const access = checkAccess(interaction, botNick, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
         return
       }
 
@@ -1394,16 +1651,26 @@ discordClient.on('interactionCreate', async (interaction) => {
     }
     else if (interaction.commandName === 'stop') {
       const botNick = interaction.options.getString('bot').trim()
+      const member = interaction.member
+      const user = interaction.user
+      const guild = interaction.guild
+      const isAdmin = isUserAdmin(member, user, guild)
 
       if (botNick.toLowerCase() === 'semua' || botNick.toLowerCase() === 'all') {
-        const botNames = Object.keys(activeBots)
-        if (botNames.length === 0) {
-          await interaction.reply({ content: 'ℹ️ Tidak ada bot yang sedang aktif.', flags: 64 })
+        const eligibleBots = Object.keys(activeBots).filter(name => isAdmin || activeBots[name].ownerId === user.id)
+        if (eligibleBots.length === 0) {
+          await interaction.reply({ content: 'ℹ️ Tidak ada bot milik Anda yang sedang aktif.', flags: 64 })
           return
         }
 
-        botNames.forEach(name => stopBot(name))
-        await interaction.reply({ content: `🛑 Semua bot (**${botNames.join(', ')}**) telah dihentikan sepenuhnya dan auto-reconnect dibatalkan!` })
+        eligibleBots.forEach(name => stopBot(name))
+        await interaction.reply({ content: `🛑 Bot (**${eligibleBots.join(', ')}**) telah dihentikan sepenuhnya dan auto-reconnect dibatalkan!` })
+        return
+      }
+
+      const access = checkAccess(interaction, botNick, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
         return
       }
 
@@ -1414,9 +1681,28 @@ discordClient.on('interactionCreate', async (interaction) => {
       }
     }
     else if (interaction.commandName === 'list') {
-      const botNames = Object.keys(activeBots)
+      const member = interaction.member
+      const user = interaction.user
+      const guild = interaction.guild
+      const isAdmin = isUserAdmin(member, user, guild)
+
+      const subs = loadSubscriptions()
+      const sub = subs[user.id]
+      if (!isAdmin && sub && sub.channelId && interaction.channelId !== sub.channelId) {
+        await interaction.reply({ 
+          content: `⚠️ Untuk menjaga privasi, gunakan perintah ini di channel privat Anda: <#${sub.channelId}>`, 
+          flags: 64 
+        })
+        return
+      }
+
+      const botNames = Object.keys(activeBots).filter(name => {
+        if (isAdmin) return true
+        return activeBots[name].ownerId === user.id
+      })
+
       if (botNames.length === 0) {
-        await interaction.reply({ content: 'ℹ️ Saat ini tidak ada bot yang sedang berjalan atau aktif.', flags: 64 })
+        await interaction.reply({ content: 'ℹ️ Saat ini tidak ada bot Anda yang sedang berjalan atau aktif.', flags: 64 })
         return
       }
 
@@ -1424,34 +1710,250 @@ discordClient.on('interactionCreate', async (interaction) => {
         const b = activeBots[name]
         const status = b.loginSuccess ? '🟢 Online & Siap' : (b.botInstance ? '🟡 Sedang Menyambung' : '🔴 Menunggu Reconnect')
         const spamStatus = b.isSpamming ? ` | 📢 Spam (${b.spamDelay}s)` : ''
-        return `• **${name}** ➜ \`${b.host}:${b.port}\` (${status}${spamStatus})`
+        const ownerTag = (isAdmin && b.ownerId) ? ` *(User: <@${b.ownerId}>)*` : ''
+        return `• **${name}** ➜ \`${b.host}:${b.port}\` (${status}${spamStatus})${ownerTag}`
       }).join('\n')
 
       await interaction.reply({ content: `📋 **Daftar Bot Aktif (${botNames.length}):**\n${listStr}` })
     }
+    else if (interaction.commandName === 'sewa') {
+      const member = interaction.member
+      const user = interaction.user
+      const guild = interaction.guild
+      const isAdmin = isUserAdmin(member, user, guild)
+      const subcommand = interaction.options.getSubcommand()
+
+      if (subcommand === 'tambah') {
+        if (!isAdmin) {
+          await interaction.reply({ content: '❌ Hanya Owner / Administrator yang dapat menambahkan sewa!', flags: 64 })
+          return
+        }
+
+        await interaction.deferReply()
+
+        const targetUser = interaction.options.getUser('user')
+        const slot = interaction.options.getInteger('slot')
+        const durasiStr = interaction.options.getString('durasi')
+        const durationMs = parseDuration(durasiStr)
+        const now = Date.now()
+        const expiresAt = now + durationMs
+
+        let subs = loadSubscriptions()
+        let existing = subs[targetUser.id] || {}
+
+        let channel = null
+        if (existing.channelId) {
+          channel = guild.channels.cache.get(existing.channelId) || await guild.channels.fetch(existing.channelId).catch(() => null)
+        }
+
+        if (!channel) {
+          const cleanName = targetUser.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) || 'user'
+          const channelName = `🔒・bot-${cleanName}`
+
+          try {
+            channel = await guild.channels.create({
+              name: channelName,
+              type: ChannelType.GuildText,
+              permissionOverwrites: [
+                {
+                  id: guild.roles.everyone.id,
+                  deny: [PermissionFlagsBits.ViewChannel]
+                },
+                {
+                  id: targetUser.id,
+                  allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.EmbedLinks,
+                    PermissionFlagsBits.AttachFiles
+                  ]
+                },
+                {
+                  id: discordClient.user.id,
+                  allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.EmbedLinks,
+                    PermissionFlagsBits.ManageChannels
+                  ]
+                }
+              ]
+            })
+          } catch (err) {
+            console.error('[Error Create Channel]:', err)
+            await interaction.editReply({ content: `❌ Gagal membuat private channel: ${err.message}. Pastikan bot memiliki permission \`Manage Channels\`!` })
+            return
+          }
+        }
+
+        subs[targetUser.id] = {
+          userId: targetUser.id,
+          username: targetUser.username,
+          channelId: channel.id,
+          maxBots: slot,
+          createdAt: now,
+          expiresAt: expiresAt,
+          durationStr: durasiStr,
+          expiredNotified: false,
+          assignedBots: existing.assignedBots || []
+        }
+        saveSubscriptions(subs)
+
+        const expireUnix = Math.floor(expiresAt / 1000)
+
+        try {
+          await channel.send({
+            content: `🎉 Halo <@${targetUser.id}>!\n\n` +
+              `📦 **PAKET SEWA BOT MINECRAFT TELAH AKTIF!**\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `• **Kuota Slot:** **${slot} Bot**\n` +
+              `• **Durasi:** **${durasiStr}**\n` +
+              `• **Berakhir Pada:** <t:${expireUnix}:F> (<t:${expireUnix}:R>)\n` +
+              `• **Channel Ini:** Khusus privat untuk Anda mengontrol bot.\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `📖 **Panduan Penggunaan Bot:**\n` +
+              `1️⃣ \`/register\` ➜ Daftarkan nickname & password bot jika belum terdaftar di server Minecraft.\n` +
+              `2️⃣ \`/login\` ➜ Masukkan IP server & akun bot untuk mulai menyambung dan AFK 24/7.\n` +
+              `3️⃣ \`/menu\` ➜ Kirim perintah game (contoh: \`/menu bot:nama perintah:/server ecocpvp\`, \`/menu bot:nama perintah:/sethome 1\`).\n` +
+              `4️⃣ \`/spam\` ➜ Aktifkan spam chat otomatis (cooldown disarankan minimal 30-35 detik agar aman dari mute).\n` +
+              `5️⃣ \`/stopspam\` ➜ Hentikan spam chat.\n` +
+              `6️⃣ \`/stop\` ➜ Matikan bot.\n` +
+              `7️⃣ \`/list\` ➜ Cek status bot Anda.\n\n` +
+              `💡 *Semua notifikasi login, TPA, dan info bot Anda akan masuk secara privat ke channel ini!*`
+          })
+        } catch (e) {
+          console.error('[Error send to private channel]:', e)
+        }
+
+        await interaction.editReply({
+          content: `✅ **Sewa Berhasil Ditambahkan!**\n• User: <@${targetUser.id}>\n• Kuota: **${slot} Bot**\n• Durasi: **${durasiStr}** (s/d <t:${expireUnix}:R>)\n• Private Channel: <#${channel.id}>`
+        })
+      }
+      else if (subcommand === 'cek') {
+        const targetUser = interaction.options.getUser('user') || interaction.user
+        if (targetUser.id !== user.id && !isAdmin) {
+          await interaction.reply({ content: '❌ Anda hanya dapat mengecek sewa milik Anda sendiri!', flags: 64 })
+          return
+        }
+
+        const subs = loadSubscriptions()
+        const sub = subs[targetUser.id]
+        if (!sub) {
+          await interaction.reply({ content: `ℹ️ User <@${targetUser.id}> belum memiliki langganan/sewa aktif.`, flags: 64 })
+          return
+        }
+
+        const now = Date.now()
+        const isExpired = now > sub.expiresAt
+        const expireUnix = Math.floor(sub.expiresAt / 1000)
+        const activeCount = Object.values(activeBots).filter(b => b.ownerId === targetUser.id && !b.isStopped).length
+        const statusStr = isExpired ? '🔴 **Sudah Berakhir (Expired)**' : `🟢 **Aktif** (Berakhir: <t:${expireUnix}:R>)`
+
+        await interaction.reply({
+          content: `📊 **Status Sewa Bot <@${targetUser.id}>:**\n` +
+            `• Status: ${statusStr}\n` +
+            `• Kuota Slot: **${activeCount} / ${sub.maxBots} bot aktif**\n` +
+            `• Private Channel: <#${sub.channelId}>\n` +
+            `• Riwayat Bot: \`${(sub.assignedBots && sub.assignedBots.length) ? sub.assignedBots.join(', ') : 'Belum ada'}\`\n` +
+            `• Berakhir Pada: <t:${expireUnix}:F>`,
+          flags: 64
+        })
+      }
+      else if (subcommand === 'stop') {
+        if (!isAdmin) {
+          await interaction.reply({ content: '❌ Hanya Owner / Administrator yang dapat menghentikan sewa!', flags: 64 })
+          return
+        }
+
+        const targetUser = interaction.options.getUser('user')
+        let subs = loadSubscriptions()
+        const sub = subs[targetUser.id]
+        if (!sub) {
+          await interaction.reply({ content: `ℹ️ User <@${targetUser.id}> tidak memiliki data sewa aktif.`, flags: 64 })
+          return
+        }
+
+        let stoppedCount = 0
+        Object.keys(activeBots).forEach(name => {
+          if (activeBots[name].ownerId === targetUser.id) {
+            stopBot(name)
+            stoppedCount++
+          }
+        })
+
+        sub.expiresAt = Date.now()
+        sub.expiredNotified = true
+        saveSubscriptions(subs)
+
+        if (sub.channelId) {
+          const ch = guild.channels.cache.get(sub.channelId) || await guild.channels.fetch(sub.channelId).catch(() => null)
+          if (ch) {
+            ch.send(`🛑 <@${targetUser.id}> Masa sewa Anda telah dihentikan oleh Admin. Semua bot (**${stoppedCount} bot**) telah dimatikan.`)
+          }
+        }
+
+        await interaction.reply({ content: `🛑 Sewa user <@${targetUser.id}> berhasil dihentikan. **${stoppedCount} bot** telah dimatikan.` })
+      }
+      else if (subcommand === 'list') {
+        if (!isAdmin) {
+          await interaction.reply({ content: '❌ Hanya Owner / Administrator yang dapat melihat daftar seluruh penyewa!', flags: 64 })
+          return
+        }
+
+        const subs = loadSubscriptions()
+        const userIds = Object.keys(subs)
+        if (userIds.length === 0) {
+          await interaction.reply({ content: 'ℹ️ Belum ada data penyewa yang terdaftar.', flags: 64 })
+          return
+        }
+
+        const now = Date.now()
+        const lines = userIds.map(uid => {
+          const s = subs[uid]
+          const isExpired = now > s.expiresAt
+          const expUnix = Math.floor(s.expiresAt / 1000)
+          const activeCount = Object.values(activeBots).filter(b => b.ownerId === uid && !b.isStopped).length
+          const statusIcon = isExpired ? '🔴 Expired' : `🟢 Aktif (<t:${expUnix}:R>)`
+          return `• <@${uid}> ➜ Slot: **${activeCount}/${s.maxBots}** | Status: ${statusIcon} | Channel: <#${s.channelId}>`
+        })
+
+        await interaction.reply({ content: `📋 **Daftar Seluruh Penyewa Bot (${userIds.length}):**\n${lines.join('\n')}`, flags: 64 })
+      }
+    }
   } 
   else if (interaction.isButton()) {
     const customId = interaction.customId
-    if (customId.startsWith('tpa_acc_')) {
-      const botNick = customId.replace('tpa_acc_', '')
+    if (customId.startsWith('tpa_acc_') || customId.startsWith('tpa_deny_')) {
+      const isAcc = customId.startsWith('tpa_acc_')
+      const botNick = customId.replace(isAcc ? 'tpa_acc_' : 'tpa_deny_', '')
       const targetData = activeBots[botNick]
-      if (targetData && targetData.botInstance && targetData.botInstance.chat) {
-        targetData.botInstance.chat('/tpaccept')
-        await interaction.reply({ content: `✅ Permintaan TPA berhasil diterima oleh **${botNick}**! (\`/tpaccept\`)` })
-      } else {
-        await interaction.reply({ content: `❌ Bot **${botNick}** sedang offline atau tidak aktif!`, flags: 64 })
-      }
-      return
-    }
 
-    if (customId.startsWith('tpa_deny_')) {
-      const botNick = customId.replace('tpa_deny_', '')
-      const targetData = activeBots[botNick]
-      if (targetData && targetData.botInstance && targetData.botInstance.chat) {
-        targetData.botInstance.chat('/tpdeny')
-        await interaction.reply({ content: `❌ Permintaan TPA ditolak oleh **${botNick}**! (\`/tpdeny\`)` })
+      const member = interaction.member
+      const user = interaction.user
+      const guild = interaction.guild
+      const isAdmin = isUserAdmin(member, user, guild)
+
+      if (targetData && targetData.ownerId && targetData.ownerId !== user.id && !isAdmin) {
+        await interaction.reply({ content: `❌ Tombol TPA ini hanya untuk pemilik bot **${botNick}**!`, flags: 64 })
+        return
+      }
+
+      if (isAcc) {
+        if (targetData && targetData.botInstance && targetData.botInstance.chat) {
+          targetData.botInstance.chat('/tpaccept')
+          await interaction.reply({ content: `✅ Permintaan TPA berhasil diterima oleh **${botNick}**! (\`/tpaccept\`)` })
+        } else {
+          await interaction.reply({ content: `❌ Bot **${botNick}** sedang offline atau tidak aktif!`, flags: 64 })
+        }
       } else {
-        await interaction.reply({ content: `❌ Bot **${botNick}** sedang offline atau tidak aktif!`, flags: 64 })
+        if (targetData && targetData.botInstance && targetData.botInstance.chat) {
+          targetData.botInstance.chat('/tpdeny')
+          await interaction.reply({ content: `❌ Permintaan TPA ditolak oleh **${botNick}**! (\`/tpdeny\`)` })
+        } else {
+          await interaction.reply({ content: `❌ Bot **${botNick}** sedang offline atau tidak aktif!`, flags: 64 })
+        }
       }
       return
     }
@@ -1462,24 +1964,42 @@ discordClient.on('interactionCreate', async (interaction) => {
       const botNick = interaction.fields.getTextInputValue('input_nickname').trim()
       const botPassword = interaction.fields.getTextInputValue('input_password').trim()
 
+      const access = checkAccess(interaction, botNick, true)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
       await interaction.reply({ content: `⚙️ Memproses registrasi **${botNick}** ke \`${serverIp}\`... Notifikasi sukses akan muncul di channel ini secara otomatis.`, flags: 64 })
-      registerMinecraftBot(botNick, serverIp, botPassword, interaction.channel)
+      registerMinecraftBot(botNick, serverIp, botPassword, interaction.channel, interaction.user.id)
     }
     else if (interaction.customId === 'modal_login_bot') {
       const serverIp = interaction.fields.getTextInputValue('input_ip').trim()
       const botNick = interaction.fields.getTextInputValue('input_nickname').trim()
       const botPassword = interaction.fields.getTextInputValue('input_password').trim()
 
+      const access = checkAccess(interaction, botNick, true)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
       await interaction.reply({ content: `✅ Meluncurkan **${botNick}** ke \`${serverIp}\` dan melakukan login otomatis...`, flags: 64 })
-      loginMinecraftBot(botNick, serverIp, botPassword, interaction.channel)
+      loginMinecraftBot(botNick, serverIp, botPassword, interaction.channel, interaction.user.id)
     }
     else if (interaction.customId === 'modal_spam_bot') {
       const botNick = interaction.fields.getTextInputValue('input_bot').trim()
       const pesan = interaction.fields.getTextInputValue('input_pesan').trim()
-      const jedaStr = interaction.fields.getTextInputValue('input_jeda') || '15'
+      const jedaStr = interaction.fields.getTextInputValue('input_jeda') || '35'
       const antiDuplikatStr = (interaction.fields.getTextInputValue('input_antiduplikat') || 'ya').toLowerCase()
 
-      const jeda = Math.max(3, parseInt(jedaStr.trim(), 10) || 15)
+      const access = checkAccess(interaction, botNick, false)
+      if (!access.allowed) {
+        await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
+      const jeda = Math.max(3, parseInt(jedaStr.trim(), 10) || 35)
       const antiDuplikat = !antiDuplikatStr.includes('tidak') && !antiDuplikatStr.includes('no') && !antiDuplikatStr.includes('false')
 
       const res = startSpam(botNick, pesan, jeda, antiDuplikat)
