@@ -136,6 +136,12 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
 
     botInstance.loadPlugin(pathfinder)
 
+    botInstance.on('entitySpawn', (entity) => {
+      if (entity && (entity.name === 'item' || entity.type === 'item' || entity.name === 'experience_orb' || entity.type === 'object')) {
+        delete botInstance.entities[entity.id]
+      }
+    })
+
     timeoutRegis = setTimeout(() => {
       if (!sudahSelesai) {
         sudahSelesai = true
@@ -513,6 +519,10 @@ function stopBot(username) {
   stopSpam(username)
 
   targetData.isStopped = true
+  if (targetData.sweepInterval) {
+    clearInterval(targetData.sweepInterval)
+    targetData.sweepInterval = null
+  }
   if (targetData.reconnectTimer) {
     clearTimeout(targetData.reconnectTimer)
     targetData.reconnectTimer = null
@@ -559,6 +569,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     loginSuccess: false,
     fallbackTimer: null,
     reconnectTimer: null,
+    sweepInterval: null,
     isStopped: false,
     failCount: 0,
     lastTpaTime: 0,
@@ -581,6 +592,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     botData.autoRegSent = false
     if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
     if (botData.reconnectTimer) clearTimeout(botData.reconnectTimer)
+    if (botData.sweepInterval) {
+      clearInterval(botData.sweepInterval)
+      botData.sweepInterval = null
+    }
 
     if (botData.botInstance) {
       try { 
@@ -599,6 +614,32 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       checkTimeoutInterval: 90 * 1000,
       hideErrors: false
     })
+
+    // 🛡️ FITUR ANTI-CRASH MOB FARM & DROP JUTAAN BONE / ITEM:
+    // 1. Minta server Minecraft membatasi jarak chunk render bot ke paling minimal (2 chunk)
+    botData.botInstance.on('spawn', () => {
+      try {
+        botData.botInstance.setSettings({ viewDistance: 2 })
+      } catch (_) {}
+    })
+
+    // 2. Langsung buang entity drop (bone, panah, exp orb) dari memori bot saat muncul
+    botData.botInstance.on('entitySpawn', (entity) => {
+      if (entity && (entity.name === 'item' || entity.type === 'item' || entity.name === 'experience_orb' || entity.type === 'object')) {
+        delete botData.botInstance.entities[entity.id]
+      }
+    })
+
+    // 3. Pembersihan sampah memori entity farm secara berkala setiap 3 detik
+    botData.sweepInterval = setInterval(() => {
+      if (!botData.botInstance || !botData.botInstance.entities) return
+      for (const id in botData.botInstance.entities) {
+        const ent = botData.botInstance.entities[id]
+        if (ent && (ent.name === 'item' || ent.type === 'item' || ent.name === 'experience_orb' || ent.type === 'object')) {
+          delete botData.botInstance.entities[id]
+        }
+      }
+    }, 3000)
 
     botData.botInstance.loadPlugin(pathfinder)
 
