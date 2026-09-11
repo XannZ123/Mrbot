@@ -532,7 +532,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     isSpamming: false,
     spamMessage: '',
     spamDelay: 6,
-    antiDuplikat: true
+    antiDuplikat: true,
+    autoRegSent: false
   }
 
   activeBots[username] = botData
@@ -542,6 +543,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
     botData.loginSent = false
     botData.loginSuccess = false
+    botData.autoRegSent = false
     if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
     if (botData.reconnectTimer) clearTimeout(botData.reconnectTimer)
 
@@ -683,11 +685,14 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         return
       }
 
-      const delayReconnect = (lowerKick.includes('reconnect to verify') || lowerKick.includes('please reconnect')) ? 4500 : (isAntiBot ? 8000 : 35000)
+      const isAuthTimeout = lowerKick.includes('authorisation time elapsed') || lowerKick.includes('authorization time elapsed') || lowerKick.includes('time elapsed')
+      const delayReconnect = (lowerKick.includes('reconnect to verify') || lowerKick.includes('please reconnect') || isAuthTimeout) ? 4500 : (isAntiBot ? 8000 : 35000)
 
       if (interactionChannel) {
         if (isAntiBot) {
           interactionChannel.send(`🛡️ **Verifikasi Anti-Bot Terdeteksi!** Akun **${username}**:\n> ${alasan.slice(0, 300)}\n🔄 Menjawab verifikasi server: Menyambung ulang otomatis dalam ${Math.round(delayReconnect / 1000)} detik...`)
+        } else if (isAuthTimeout) {
+          interactionChannel.send(`⏱️ **Waktu Autentikasi Habis!** Akun **${username}**:\n> ${alasan.slice(0, 300)}\n🔄 Menyambung ulang dalam 4 detik dan mencoba login/register otomatis...`)
         } else {
           interactionChannel.send(`⚠️ **Bot Di-kick!** Akun **${username}** di-kick dari \`${hostServer}\`:\n> ${alasan.slice(0, 300)}\n*(Akan mencoba menyambung ulang dalam 35 detik...)*`)
         }
@@ -713,7 +718,29 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       const titleStr = typeof text === 'string' ? text : (text.text || JSON.stringify(text))
       console.log(`[🏷️ LOGIN TITLE ${username}]: ${titleStr}`)
       const lower = titleStr.toLowerCase()
-      if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat')) {
+
+      // Deteksi jika server meminta /register (akun belum terdaftar)
+      if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
+        botData.autoRegSent = true
+        console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
+        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+        if (interactionChannel) {
+          interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+        }
+        setTimeout(() => {
+          if (botData.botInstance && botData.botInstance.chat) {
+            botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+          }
+        }, 1200)
+        return
+      }
+
+      if (lower.includes('berhasil') || 
+          lower.includes('sukses') || 
+          lower.includes('success') || 
+          lower.includes('selamat') ||
+          lower.includes('registered') ||
+          lower.includes('a cracked session')) {
         notifyLoginSuccess(titleStr)
       }
     })
@@ -724,7 +751,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       if (!barStr) return
       console.log(`[📊 LOGIN ACTIONBAR ${username}]: ${barStr}`)
       const lower = barStr.toLowerCase()
-      if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat')) {
+      if (lower.includes('berhasil') || lower.includes('sukses') || lower.includes('success') || lower.includes('selamat') || lower.includes('logged')) {
         notifyLoginSuccess(barStr)
       }
     })
@@ -735,6 +762,22 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       console.log(`[💬 LOGIN CHAT ${username}]: ${pesan}`)
 
       const lower = pesan.toLowerCase()
+
+      // 0. Deteksi jika server meminta /register di Chat (akun belum terdaftar)
+      if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('use /register') || lower.includes('belum terdaftar') || lower.includes('silakan register') || lower.includes('silahkan register') || lower.includes('must register') || lower.includes('you are not registered'))) {
+        botData.autoRegSent = true
+        console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Chat! Menjalankan pendaftaran otomatis...`)
+        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+        if (interactionChannel) {
+          interactionChannel.send(`ℹ️ Server mendeteksi akun **${username}** belum terdaftar. Menjalankan pendaftaran otomatis (\`/register <password> <password>\`)...`)
+        }
+        setTimeout(() => {
+          if (botData.botInstance && botData.botInstance.chat) {
+            botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
+          }
+        }, 1200)
+        return
+      }
 
       // 1. Jika server minta login & belum dikirim
       if (!botData.loginSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
@@ -773,6 +816,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('anda telah login') ||
           lower.includes('kamu telah login') ||
           lower.includes('you are now logged in') ||
+          lower.includes('you are already logged') ||
+          lower.includes('you are already registered') ||
+          lower.includes('a cracked session') ||
+          lower.includes('hi on minecraft server network') ||
           lower.includes('sukses masuk') ||
           lower.includes('berhasil masuk') ||
           lower.includes(`${username.toLowerCase()} bergabung ke peradaban`) ||
