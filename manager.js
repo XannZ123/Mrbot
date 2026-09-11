@@ -575,7 +575,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     antiDuplikat: true,
     autoRegSent: false,
     lastSubServer: null,
-    autoReturnCommand: '/home afk'
+    autoReturnCommand: null,
+    wasDead: false
   }
 
   activeBots[username] = botData
@@ -714,6 +715,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     }
 
     botData.botInstance.on('death', () => {
+      botData.wasDead = true
       console.log(`[💀 DEATH ${username}] Bot mati di game! Mengirim perintah respawn...`)
       if (interactionChannel) {
         interactionChannel.send(`💀 **Bot Mati/Tereliminasi di Game!** Akun **${username}** mati. Melakukan respawn otomatis dalam 1.5 detik...`)
@@ -825,24 +827,27 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     botData.botInstance.on('respawn', () => {
       if (!botData.loginSuccess) {
         notifyLoginSuccess('Berhasil masuk dan berpindah ke sub-server/area baru.')
-      } else {
-        console.log(`[🗺️ RESPAWN ${username}] Berhasil berpindah server / respawn di area baru.`)
-        if (interactionChannel) {
-          interactionChannel.send(`🗺️ **Respawn / Masuk Dunia:** Akun **${username}** telah hidup kembali di area baru.`)
-        }
       }
 
-      // Otomatis kembali ke home / farm setelah mati & respawn!
-      if (botData.loginSuccess && botData.autoReturnCommand) {
-        setTimeout(() => {
-          if (!botData.isStopped && botData.botInstance && botData.botInstance.chat && botData.autoReturnCommand) {
-            console.log(`[🏠 AUTO-HOME ${username}] Mengembalikan akun ke farm setelah respawn: ${botData.autoReturnCommand}`)
-            if (interactionChannel) {
-              interactionChannel.send(`🏠 **Auto-Home Aktif:** Mengembalikan akun **${username}** ke lokasi farm (\`${botData.autoReturnCommand}\`)...`)
+      // HANYA PULANG JIKA BOT BENAR-BENAR MATI (Bukan karena TPA atau pindah server!) DAN SUDAH DI-SETHOME
+      if (botData.wasDead) {
+        botData.wasDead = false
+        console.log(`[🗺️ RESPAWN ${username}] Bot hidup kembali setelah mati di game.`)
+        if (interactionChannel) {
+          interactionChannel.send(`🗺️ **Respawn:** Akun **${username}** hidup kembali setelah mati.`)
+        }
+
+        if (botData.loginSuccess && botData.autoReturnCommand) {
+          setTimeout(() => {
+            if (!botData.isStopped && botData.botInstance && botData.botInstance.chat && botData.autoReturnCommand) {
+              console.log(`[🏠 AUTO-HOME ${username}] Mengembalikan akun ke farm setelah mati: ${botData.autoReturnCommand}`)
+              if (interactionChannel) {
+                interactionChannel.send(`🏠 **Auto-Home Aktif:** Mengembalikan akun **${username}** ke lokasi farm (\`${botData.autoReturnCommand}\`)...`)
+              }
+              botData.botInstance.chat(botData.autoReturnCommand)
             }
-            botData.botInstance.chat(botData.autoReturnCommand)
-          }
-        }, 3500)
+          }, 3500)
+        }
       }
     })
 
@@ -1262,10 +1267,10 @@ discordClient.on('interactionCreate', async (interaction) => {
       let extraInfo = ''
       if (gameCommand.toLowerCase().startsWith('/sethome')) {
         const parts = gameCommand.trim().split(/\s+/)
-        const hName = parts[1] || ''
-        targetData.autoReturnCommand = hName ? `/home ${hName}` : '/home'
+        const hName = parts[1] || '1'
+        targetData.autoReturnCommand = `/home ${hName}`
         console.log(`[🏠 AUTO-RETURN ${botNick}] Titik home diset: ${targetData.autoReturnCommand}`)
-        extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` setiap kali mati atau reconnect!*`
+        extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
       }
       targetData.botInstance.chat(gameCommand)
 
