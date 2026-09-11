@@ -574,7 +574,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     spamDelay: 6,
     antiDuplikat: true,
     autoRegSent: false,
-    lastSubServer: null
+    lastSubServer: null,
+    autoReturnCommand: '/home afk'
   }
 
   activeBots[username] = botData
@@ -670,8 +671,28 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
               interactionChannel.send(`🔄 Otomatis mengembalikan akun **${username}** ke arena \`/server ${botData.lastSubServer}\`...`)
             }
             botData.botInstance.chat(`/server ${botData.lastSubServer}`)
+
+            // Setelah masuk sub-server, otomatis ketik /home afk
+            if (botData.autoReturnCommand) {
+              setTimeout(() => {
+                if (botData.loginSuccess && !botData.isStopped && botData.botInstance && botData.botInstance.chat) {
+                  console.log(`[🏠 AUTO-HOME ${username}] Mengembalikan akun ke home: ${botData.autoReturnCommand}`)
+                  if (interactionChannel) {
+                    interactionChannel.send(`🏠 **Auto-Home:** Mengembalikan akun **${username}** ke lokasi farm (\`${botData.autoReturnCommand}\`)...`)
+                  }
+                  botData.botInstance.chat(botData.autoReturnCommand)
+                }
+              }, 4000)
+            }
           }
         }, 3500)
+      } else if (botData.autoReturnCommand) {
+        setTimeout(() => {
+          if (botData.loginSuccess && !botData.isStopped && botData.botInstance && botData.botInstance.chat) {
+            console.log(`[🏠 AUTO-HOME ${username}] Menjalankan perintah pulang: ${botData.autoReturnCommand}`)
+            botData.botInstance.chat(botData.autoReturnCommand)
+          }
+        }, 4000)
       }
     }
 
@@ -807,8 +828,21 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       } else {
         console.log(`[🗺️ RESPAWN ${username}] Berhasil berpindah server / respawn di area baru.`)
         if (interactionChannel) {
-          interactionChannel.send(`🗺️ **Berhasil Pindah Server / Masuk Dunia!** Akun **${username}** telah berhasil berpindah dan aktif di sub-server/area baru.`)
+          interactionChannel.send(`🗺️ **Respawn / Masuk Dunia:** Akun **${username}** telah hidup kembali di area baru.`)
         }
+      }
+
+      // Otomatis kembali ke home / farm setelah mati & respawn!
+      if (botData.loginSuccess && botData.autoReturnCommand) {
+        setTimeout(() => {
+          if (!botData.isStopped && botData.botInstance && botData.botInstance.chat && botData.autoReturnCommand) {
+            console.log(`[🏠 AUTO-HOME ${username}] Mengembalikan akun ke farm setelah respawn: ${botData.autoReturnCommand}`)
+            if (interactionChannel) {
+              interactionChannel.send(`🏠 **Auto-Home Aktif:** Mengembalikan akun **${username}** ke lokasi farm (\`${botData.autoReturnCommand}\`)...`)
+            }
+            botData.botInstance.chat(botData.autoReturnCommand)
+          }
+        }, 3500)
       }
     })
 
@@ -1225,9 +1259,17 @@ discordClient.on('interactionCreate', async (interaction) => {
           console.log(`[🌐 SUB-SERVER ${botNick}] Diset via /menu: ${targetData.lastSubServer}`)
         }
       }
+      let extraInfo = ''
+      if (gameCommand.toLowerCase().startsWith('/sethome')) {
+        const parts = gameCommand.trim().split(/\s+/)
+        const hName = parts[1] || ''
+        targetData.autoReturnCommand = hName ? `/home ${hName}` : '/home'
+        console.log(`[🏠 AUTO-RETURN ${botNick}] Titik home diset: ${targetData.autoReturnCommand}`)
+        extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` setiap kali mati atau reconnect!*`
+      }
       targetData.botInstance.chat(gameCommand)
 
-      await interaction.reply({ content: `✅ Perintah \`${gameCommand}\` berhasil dikirim ke **${botNick}**!`, flags: 64 })
+      await interaction.reply({ content: `✅ Perintah \`${gameCommand}\` berhasil dikirim ke **${botNick}**!${extraInfo}`, flags: 64 })
 
       setTimeout(async () => {
         try {
