@@ -437,7 +437,7 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
 }
 
 // FUNGSI MANAJEMEN SPAM CHAT
-function startSpam(username, pesan, jedaDetik = 6, antiDuplikat = true) {
+function startSpam(username, pesan, jedaDetik = 15, antiDuplikat = true) {
   const targetData = activeBots[username]
   if (!targetData) return { success: false, reason: 'Bot tidak ditemukan atau sedang offline.' }
   if (!targetData.botInstance || !targetData.botInstance.chat) {
@@ -446,7 +446,7 @@ function startSpam(username, pesan, jedaDetik = 6, antiDuplikat = true) {
 
   stopSpam(username)
 
-  let jeda = Math.max(3, parseInt(jedaDetik, 10) || 6)
+  let jeda = Math.max(3, parseInt(jedaDetik, 10) || 15)
   targetData.isSpamming = true
   targetData.spamMessage = pesan
   targetData.spamDelay = jeda
@@ -461,18 +461,26 @@ function startSpam(username, pesan, jedaDetik = 6, antiDuplikat = true) {
       return
     }
 
-    let pesanFinal = targetData.spamMessage
-    if (targetData.antiDuplikat) {
-      const randomCode = Math.floor(100 + Math.random() * 900)
-      pesanFinal = `${targetData.spamMessage} [${randomCode}]`
-    }
+    const rawLines = targetData.spamMessage.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+    if (rawLines.length === 0) return
 
-    try {
-      targetData.botInstance.chat(pesanFinal)
-      console.log(`[📢 SPAM ${username}]: ${pesanFinal}`)
-    } catch (err) {
-      console.log(`[❌ GAGAL SPAM ${username}]: ${err.message}`)
-    }
+    rawLines.forEach((line, idx) => {
+      setTimeout(() => {
+        if (!targetData.isSpamming || !targetData.botInstance || !targetData.botInstance.chat) return
+        let text = line
+        if (targetData.antiDuplikat && idx === rawLines.length - 1) {
+          const randomCode = Math.floor(100 + Math.random() * 900)
+          text = `${line} [${randomCode}]`
+        }
+
+        try {
+          targetData.botInstance.chat(text)
+          console.log(`[📢 SPAM ${username} (Baris ${idx + 1})]: ${text}`)
+        } catch (err) {
+          console.log(`[❌ GAGAL SPAM ${username}]: ${err.message}`)
+        }
+      }, idx * 750)
+    })
   }
 
   // Kirim pesan pertama langsung
@@ -1058,15 +1066,15 @@ discordClient.once('ready', async () => {
         option.setName('perintah').setDescription('Perintah game').setRequired(true)),
     new SlashCommandBuilder()
       .setName('spam')
-      .setDescription('Kirim pesan otomatis/spam chat berulang di server')
+      .setDescription('Kirim pesan promosi berulang (Ketik /spam untuk buka form popup modal lengkap)')
       .addStringOption(option => 
-        option.setName('bot').setDescription('Nama bot yang ingin digunakan').setRequired(true))
+        option.setName('bot').setDescription('Nama bot (kosongkan untuk buka form popup)').setRequired(false))
       .addStringOption(option => 
-        option.setName('pesan').setDescription('Pesan yang ingin dikirim berulang').setRequired(true))
+        option.setName('pesan').setDescription('Pesan promosi').setRequired(false))
       .addIntegerOption(option => 
-        option.setName('jeda').setDescription('Jeda waktu dalam detik (default: 6 detik, min: 3)').setRequired(false))
+        option.setName('jeda').setDescription('Cooldown / jeda dalam detik (default: 15)').setRequired(false))
       .addBooleanOption(option => 
-        option.setName('anti_duplikat').setDescription('Tambahkan kode unik acak agar tidak diblokir plugin server (default: True)').setRequired(false)),
+        option.setName('anti_duplikat').setDescription('Kode unik anti kick (default: True)').setRequired(false)),
     new SlashCommandBuilder()
       .setName('stopspam')
       .setDescription('Hentikan spam chat pada bot tertentu atau semua bot')
@@ -1201,9 +1209,61 @@ discordClient.on('interactionCreate', async (interaction) => {
       }, 2500)
     }
     else if (interaction.commandName === 'spam') {
-      const botNick = interaction.options.getString('bot').trim()
-      const pesan = interaction.options.getString('pesan').trim()
-      const jeda = interaction.options.getInteger('jeda') || 6
+      const botNickOpt = interaction.options.getString('bot')
+      const pesanOpt = interaction.options.getString('pesan')
+
+      // Jika dijalankan langsung /spam tanpa pesan, BUKA FORM POPUP MODAL LENGKAP!
+      if (!pesanOpt) {
+        const modal = new ModalBuilder()
+          .setCustomId('modal_spam_bot')
+          .setTitle('📢 Pengaturan Spam Chat & Cooldown')
+
+        const defaultBot = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots)[0] || '')
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('input_bot')
+              .setLabel('Nickname Bot')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('Contoh: botMrSk')
+              .setValue(defaultBot)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('input_pesan')
+              .setLabel('Pesan Promosi (Bisa Multi-Baris/Enter)')
+              .setStyle(TextInputStyle.Paragraph)
+              .setPlaceholder('&d&l✦ BUTUH JASA BOOTING AFK 24/7 ✦\n&6&l💰 150M / DAY • DM DISCORD &5&lxannyolo')
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('input_jeda')
+              .setLabel('Cooldown / Jeda Waktu (Detik)')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('Contoh: 15 (default: 15 detik, min: 3)')
+              .setValue('15')
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('input_antiduplikat')
+              .setLabel('Anti-Duplikat Acak (ya / tidak)')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('ya / tidak (default: ya)')
+              .setValue('ya')
+              .setRequired(false)
+          )
+        )
+        await interaction.showModal(modal)
+        return
+      }
+
+      const botNick = botNickOpt ? botNickOpt.trim() : (Object.keys(activeBots)[0] || '')
+      const pesan = pesanOpt.trim()
+      const jeda = interaction.options.getInteger('jeda') || 15
       const antiDuplikat = interaction.options.getBoolean('anti_duplikat') !== false
 
       if (jeda < 3) {
@@ -1215,7 +1275,7 @@ discordClient.on('interactionCreate', async (interaction) => {
       if (res.success) {
         const duplikatInfo = antiDuplikat ? 'Aktif (Otomatis diberi kode acak unik)' : 'Nonaktif (Pesan murni)'
         await interaction.reply({
-          content: `📢 **Spam Chat Berhasil Dimulai!**\n• Bot: **${botNick}**\n• Pesan: \`${pesan}\`\n• Jeda: **${res.jeda} detik sekali**\n• Anti-Duplikat: **${duplikatInfo}**\n\n💡 *Gunakan \`/stopspam bot:${botNick}\` untuk menghentikan, atau \`/stop\` untuk mematikan bot.*`
+          content: `📢 **Spam Chat Berhasil Dimulai!**\n• Bot: **${botNick}**\n• Pesan:\n\`\`\`\n${pesan}\n\`\`\`\n• Jeda Cooldown: **${res.jeda} detik sekali**\n• Anti-Duplikat: **${duplikatInfo}**\n\n💡 *Gunakan \`/stopspam bot:${botNick}\` untuk menghentikan, atau \`/stop\` untuk mematikan bot.*`
         })
       } else {
         await interaction.reply({ content: `❌ Gagal mengaktifkan spam chat: ${res.reason}`, flags: 64 })
@@ -1329,6 +1389,25 @@ discordClient.on('interactionCreate', async (interaction) => {
 
       await interaction.reply({ content: `✅ Meluncurkan **${botNick}** ke \`${serverIp}\` dan melakukan login otomatis...`, flags: 64 })
       loginMinecraftBot(botNick, serverIp, botPassword, interaction.channel)
+    }
+    else if (interaction.customId === 'modal_spam_bot') {
+      const botNick = interaction.fields.getTextInputValue('input_bot').trim()
+      const pesan = interaction.fields.getTextInputValue('input_pesan').trim()
+      const jedaStr = interaction.fields.getTextInputValue('input_jeda') || '15'
+      const antiDuplikatStr = (interaction.fields.getTextInputValue('input_antiduplikat') || 'ya').toLowerCase()
+
+      const jeda = Math.max(3, parseInt(jedaStr.trim(), 10) || 15)
+      const antiDuplikat = !antiDuplikatStr.includes('tidak') && !antiDuplikatStr.includes('no') && !antiDuplikatStr.includes('false')
+
+      const res = startSpam(botNick, pesan, jeda, antiDuplikat)
+      if (res.success) {
+        const duplikatInfo = antiDuplikat ? 'Aktif (Otomatis diberi kode acak unik)' : 'Nonaktif (Pesan murni)'
+        await interaction.reply({
+          content: `📢 **Spam Chat Berhasil Dimulai!**\n• Bot: **${botNick}**\n• Pesan:\n\`\`\`\n${pesan}\n\`\`\`\n• Jeda Cooldown: **${res.jeda} detik sekali**\n• Anti-Duplikat: **${duplikatInfo}**\n\n💡 *Gunakan \`/stopspam bot:${botNick}\` untuk menghentikan, atau \`/stop\` untuk mematikan bot.*`
+        })
+      } else {
+        await interaction.reply({ content: `❌ Gagal mengaktifkan spam chat: ${res.reason}`, flags: 64 })
+      }
     }
   }
 })
