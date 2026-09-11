@@ -1025,8 +1025,8 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         titleStr = String(titleStr || '')
         const lower = titleStr.toLowerCase()
 
-        // Deteksi jika server meminta /register (akun belum terdaftar)
-        if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('you need to use') || lower.includes('belum terdaftar') || lower.includes('daftar'))) {
+        // Deteksi jika server meminta /register di Title (akun belum terdaftar)
+        if (!botData.autoRegSent && lower.includes('/register') && !lower.includes('/login')) {
           botData.autoRegSent = true
           console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Title! Menjalankan pendaftaran otomatis...`)
           if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
@@ -1041,12 +1041,17 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           return
         }
 
+        // Deteksi jika server meminta /login di Title
+        if (!botData.loginSent && lower.includes('/login') && !lower.includes('/register')) {
+          setTimeout(doLogin, 800)
+          return
+        }
+
         if (lower.includes('berhasil') || 
             lower.includes('sukses') || 
             lower.includes('success') || 
-            lower.includes('selamat') ||
             lower.includes('registered') ||
-            lower.includes('a cracked session')) {
+            lower.includes('logged in')) {
           notifyLoginSuccess(titleStr)
         }
       } catch (err) {
@@ -1081,7 +1086,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       const lower = pesan.toLowerCase()
 
       // 0. Deteksi jika server meminta /register di Chat (akun belum terdaftar)
-      if (!botData.autoRegSent && (lower.includes('/register') || lower.includes('use /register') || lower.includes('belum terdaftar') || lower.includes('silakan register') || lower.includes('silahkan register') || lower.includes('must register') || lower.includes('you are not registered'))) {
+      if (!botData.autoRegSent && lower.includes('/register') && !lower.includes('/login')) {
         botData.autoRegSent = true
         console.log(`[🔄 AUTO-REGIS ${username}] Server meminta /register di Chat! Menjalankan pendaftaran otomatis...`)
         if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
@@ -1096,6 +1101,16 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         return
       }
 
+      // 0.1 Jika server memberitahu akun sudah terdaftar, SEGERA kirim /login!
+      if (lower.includes('already registered') || lower.includes('sudah terdaftar') || lower.includes('use /login') || lower.includes('gunakan /login')) {
+        console.log(`[🔑 AUTO-LOGIN ${username}] Server mengabarkan akun sudah terdaftar. Mengirim /login...`)
+        botData.autoRegSent = true
+        botData.loginSent = false
+        if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
+        setTimeout(doLogin, 600)
+        return
+      }
+
       // 1. Jika server minta login & belum dikirim
       if (!botData.loginSent && (lower.includes('login') || lower.includes('/login') || lower.includes('masuk') || lower.includes('kata sandi'))) {
         setTimeout(doLogin, 1000)
@@ -1105,17 +1120,19 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       // 2. Deteksi jika password SALAH
       if (lower.includes('password salah') || 
           lower.includes('wrong password') || 
+          lower.includes('a wrong password') ||
           lower.includes('incorrect password') || 
           lower.includes('kata sandi salah') || 
-          lower.includes('sandi salah') ||
-          lower.includes('login failed') ||
+          lower.includes('sandi salah') || 
+          lower.includes('login failed') || 
           lower.includes('gagal login')) {
         if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
         console.log(`[❌ PASSWORD SALAH ${username}]: ${pesan}`)
         kirimWebhookLog(username, `❌ **LOGIN GAGAL** - Password salah di server \`${hostServer}\`: ${pesan}`, 15158332)
         if (interactionChannel) {
-          interactionChannel.send(`❌ **Login Gagal!** Password akun **${username}** salah di server \`${hostServer}\`:\n> *${pesan}*`)
+          interactionChannel.send(`❌ **Login Gagal!** Password akun **${username}** salah di server \`${hostServer}\`:\n> *${pesan}*\n💡 *Pastikan password sesuai dengan yang didaftarkan.*`)
         }
+        stopBot(username)
         return
       }
 
@@ -1134,9 +1151,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('kamu telah login') ||
           lower.includes('you are now logged in') ||
           lower.includes('you are already logged') ||
-          lower.includes('you are already registered') ||
-          lower.includes('a cracked session') ||
           lower.includes('hi on minecraft server network') ||
+          lower.includes('useful commands') ||
+          lower.includes('sending you to') ||
+          lower.includes('you are in position') ||
           lower.includes('sukses masuk') ||
           lower.includes('berhasil masuk') ||
           lower.includes(`${username.toLowerCase()} bergabung ke peradaban`) ||
