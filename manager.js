@@ -494,12 +494,16 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
           console.log(`[🔑 REGIS ${username}] Mengirim perintah /register...`)
           botInstance.chat(`/register ${passwordBot} ${passwordBot}`)
 
-          // Fallback timer: jika setelah 4.5 detik tidak ada penolakan/kick, otomatis konfirmasi registrasi sukses!
+          // Timer cek respon registrasi: tunggu 8 detik
           fallbackTimerRegis = setTimeout(() => {
             if (!sudahSelesai && botInstance && !botInstance._client?.ended) {
-              notifyRegisterSuccess('Pendaftaran diterima oleh server (Terkonfirmasi aktif).')
+              sudahSelesai = true
+              if (interactionChannel) {
+                interactionChannel.send(`⚠️ **Menunggu Konfirmasi Registrasi (${username}):** Server \`${hostServer}\` belum mengonfirmasi pendaftaran akun. Cek apakah password memenuhi syarat atau IP server sedang cooldown.`)
+              }
+              try { botInstance.removeAllListeners(); botInstance.end() } catch (_) {}
             }
-          }, 4500)
+          }, 8000)
         }
       }, 1000)
     })
@@ -875,12 +879,15 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           console.log(`[🔑 REGIS ${username}] Mengirim /register <password> <password>...`)
           botData.botInstance.chat(`/register ${botData.password} ${botData.password}`)
 
-          // Fallback timer registrasi: tunggu 5.5 detik
+          // Timer cek konfirmasi registrasi: tunggu 8 detik
           botData.fallbackTimer = setTimeout(() => {
             if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
-              notifyLoginSuccess('Pendaftaran dan login akun terkonfirmasi aktif.')
+              console.log(`[⚠️ REGIS TIMEOUT ${username}] Belum ada respon sukses pendaftaran dari server.`)
+              if (interactionChannel) {
+                interactionChannel.send(`⚠️ **Menunggu Konfirmasi Server (${username}):** Server belum mengonfirmasi pendaftaran akun. Cek apakah password memenuhi kriteria atau gunakan \`/register\` manual.`)
+              }
             }
-          }, 5500)
+          }, 8000)
         }
       }, 1500)
     }
@@ -894,12 +901,15 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         botData.botInstance.chat(`/login ${botData.password}`)
       }
 
-      // Fallback timer: jika setelah 4.5 detik tidak ada pesan salah password atau kick, otomatis anggap login sukses!
+      // Timer cek konfirmasi login: tunggu 8 detik
       botData.fallbackTimer = setTimeout(() => {
         if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
-          notifyLoginSuccess('Berhasil terhubung dan login tanpa kendala.')
+          console.log(`[⚠️ LOGIN TIMEOUT ${username}] Belum ada respon sukses login dari server.`)
+          if (interactionChannel) {
+            interactionChannel.send(`⚠️ **Menunggu Konfirmasi Login (${username}):** Server belum mengonfirmasi sukses login. Jika akun belum terdaftar, gunakan perintah \`/register\` terlebih dahulu.`)
+          }
         }
-      }, 4500)
+      }, 8000)
     }
 
     botData.botInstance.on('death', () => {
@@ -1545,11 +1555,29 @@ discordClient.on('interactionCreate', async (interaction) => {
         return
       }
 
-      // Tangkap balasan dari server dalam beberapa detik
+      if (!targetData.loginSuccess) {
+        await interaction.reply({ 
+          content: `❌ **Bot Belum Berhasil Login!** Akun **${botNick}** saat ini belum sukses login atau pendaftarannya ditolak server di lobby.\n💡 *Periksa pesan sebelumnya di channel ini (misalnya password terlalu lemah atau salah). Gunakan \`/login\` kembali dengan password yang kuat sebelum mengirim perintah game!*`, 
+          flags: 64 
+        })
+        return
+      }
+
+      // Filter pesan broadcast player keluar/masuk agar respon server bersih & akurat
+      const isNoise = (str) => {
+        const s = str.trim()
+        const low = s.toLowerCase()
+        if (s.startsWith('[+]') || s.startsWith('[-]')) return true
+        if (low.includes('joined the game') || low.includes('left the game') || low.includes('bergabung ke peradaban')) return true
+        if (low.includes('welcome, ') && low.includes('to the server')) return true
+        if (low.includes('website https://') || low.includes('discord https://')) return true
+        return false
+      }
+
       let capturedReplies = []
       const responseHandler = (jsonMsg) => {
         const txt = jsonMsg.toString().trim()
-        if (txt && !capturedReplies.includes(txt)) {
+        if (txt && !isNoise(txt) && !capturedReplies.includes(txt)) {
           capturedReplies.push(txt)
         }
       }
@@ -1563,20 +1591,17 @@ discordClient.on('interactionCreate', async (interaction) => {
         }
       }
       let extraInfo = ''
-      if (!targetData.loginSuccess) {
-        extraInfo += `\n⚠️ *Perhatian: Akun **${botNick}** saat ini masih dalam proses login/autentikasi di lobby server. Perintah tetap dikirim, namun jika belum berpindah arena, ulangi perintah setelah bot selesai login.*`
-      }
       if (gameCommand.toLowerCase().startsWith('/sethome')) {
         const parts = gameCommand.trim().split(/\s+/)
         const hName = parts[1] || '1'
         targetData.autoReturnCommand = `/home ${hName}`
         console.log(`[🏠 AUTO-RETURN ${botNick}] Titik home diset: ${targetData.autoReturnCommand}`)
-        extraInfo += `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
+        extraInfo = `\n🏠 *Mulai sekarang, akun **${botNick}** akan otomatis mengetik \`${targetData.autoReturnCommand}\` jika mati atau reconnect!*`
       }
       else if (gameCommand.toLowerCase().startsWith('/delhome') || gameCommand.toLowerCase().startsWith('/deletehome') || gameCommand.toLowerCase().startsWith('/rmhome')) {
         targetData.autoReturnCommand = null
         console.log(`[🗑️ DELHOME ${botNick}] Titik home dihapus & auto-return dinonaktifkan.`)
-        extraInfo += `\n🗑️ *Titik home dihapus! Fitur auto-return untuk akun **${botNick}** dinonaktifkan.*`
+        extraInfo = `\n🗑️ *Titik home dihapus! Fitur auto-return untuk akun **${botNick}** dinonaktifkan.*`
       }
       targetData.botInstance.chat(gameCommand)
 
@@ -1586,7 +1611,7 @@ discordClient.on('interactionCreate', async (interaction) => {
         try {
           targetData.botInstance?.removeListener('message', responseHandler)
           if (capturedReplies.length > 0) {
-            const preview = capturedReplies.slice(0, 3).map(r => `> ${r}`).join('\n')
+            const preview = capturedReplies.slice(0, 5).map(r => `> ${r}`).join('\n')
             await interaction.followUp({ content: `💬 **Respon Server (${botNick}):**\n${preview}`, flags: 64 })
           }
         } catch (_) {}
