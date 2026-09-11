@@ -1303,35 +1303,68 @@ setInterval(async () => {
 
     for (const userId of Object.keys(subs)) {
       const sub = subs[userId]
-      if (sub.expiresAt && now > sub.expiresAt && !sub.expiredNotified) {
-        sub.expiredNotified = true
-        changed = true
+      if (sub.expiresAt && now > sub.expiresAt) {
+        if (!sub.expiredNotified) {
+          sub.expiredNotified = true
+          changed = true
 
-        console.log(`[⏰ SEWA EXPIRED] Sewa user ${sub.username || userId} telah habis! Menghentikan semua bot...`)
+          console.log(`[⏰ SEWA EXPIRED] Sewa user ${sub.username || userId} telah habis! Menghentikan semua bot...`)
 
-        let stoppedNames = []
-        Object.keys(activeBots).forEach(name => {
-          if (activeBots[name].ownerId === userId) {
-            stoppedNames.push(name)
-            stopBot(name)
-          }
-        })
-
-        if (sub.channelId) {
-          try {
-            const channel = discordClient.channels.cache.get(sub.channelId) || await discordClient.channels.fetch(sub.channelId).catch(() => null)
-            if (channel) {
-              const botsDetail = stoppedNames.length > 0 ? `Semua bot Anda (\`${stoppedNames.join(', ')}\`) telah dihentikan secara otomatis.` : 'Tidak ada bot yang sedang berjalan.'
-              await channel.send(
-                `⏰ **PERHATIAN: MASA SEWA TELAH HABIS!**\n` +
-                `<@${userId}> Masa sewa bot Anda telah selesai pada <t:${Math.floor(sub.expiresAt / 1000)}:F>.\n` +
-                `• ${botsDetail}\n` +
-                `👉 Silakan hubungi Owner jika ingin memperpanjang sewa dan mengaktifkan bot kembali. Terima kasih!`
-              )
+          let stoppedNames = []
+          Object.keys(activeBots).forEach(name => {
+            if (activeBots[name].ownerId === userId) {
+              stoppedNames.push(name)
+              stopBot(name)
             }
-          } catch (errCh) {
-            console.error('[Error kirim notif expired]:', errCh.message)
+          })
+
+          if (sub.channelId) {
+            const chId = sub.channelId
+            sub.channelId = null
+            changed = true
+            try {
+              const channel = discordClient.channels.cache.get(chId) || await discordClient.channels.fetch(chId).catch(() => null)
+              if (channel) {
+                const botsDetail = stoppedNames.length > 0 ? `Semua bot Anda (\`${stoppedNames.join(', ')}\`) telah dihentikan secara otomatis.` : 'Tidak ada bot yang sedang berjalan.'
+                await channel.send(
+                  `⏰ **PERHATIAN: MASA SEWA TELAH HABIS!**\n` +
+                  `<@${userId}> Masa sewa bot Anda telah selesai pada <t:${Math.floor(sub.expiresAt / 1000)}:F>.\n` +
+                  `• ${botsDetail}\n` +
+                  `⚠️ **Channel privat ini akan otomatis dihapus dalam 10 detik.** Silakan hubungi Owner jika ingin memperpanjang sewa. Terima kasih!`
+                )
+
+                setTimeout(async () => {
+                  try {
+                    const chToDel = discordClient.channels.cache.get(chId) || await discordClient.channels.fetch(chId).catch(() => null)
+                    if (chToDel) {
+                      await chToDel.delete('Masa sewa telah berakhir')
+                      console.log(`[🗑️ AUTO-DELETE] Channel privat ${chId} milik user ${userId} telah berhasil dihapus.`)
+                    }
+                  } catch (delErr) {
+                    console.error(`[Error delete channel ${chId}]:`, delErr.message)
+                  }
+                }, 10000)
+              }
+            } catch (errCh) {
+              console.error('[Error kirim notif expired]:', errCh.message)
+            }
           }
+        } else if (sub.channelId) {
+          // Bersihkan sisa channel lama yang sudah kadaluarsa sebelum update ini
+          const chId = sub.channelId
+          sub.channelId = null
+          changed = true
+          setTimeout(async () => {
+            try {
+              const chToDel = discordClient.channels.cache.get(chId) || await discordClient.channels.fetch(chId).catch(() => null)
+              if (chToDel) {
+                await chToDel.delete('Masa sewa telah berakhir (Pembersihan channel lama)')
+                console.log(`[🗑️ CLEANUP] Channel sisa kadaluarsa ${chId} milik user ${userId} telah dihapus.`)
+              }
+            } catch (errDel) {
+              console.error(`[Error cleanup channel ${chId}]:`, errDel.message)
+            }
+          }, 3000)
         }
       }
     }
@@ -1911,7 +1944,7 @@ discordClient.on('interactionCreate', async (interaction) => {
           content: `📊 **Status Sewa Bot <@${targetUser.id}>:**\n` +
             `• Status: ${statusStr}\n` +
             `• Kuota Slot: **${activeCount} / ${sub.maxBots} bot aktif**\n` +
-            `• Private Channel: <#${sub.channelId}>\n` +
+            `• Private Channel: ${sub.channelId ? `<#${sub.channelId}>` : '*Sudah Dihapus (Sewa Selesai)*'}\n` +
             `• Riwayat Bot: \`${(sub.assignedBots && sub.assignedBots.length) ? sub.assignedBots.join(', ') : 'Belum ada'}\`\n` +
             `• Berakhir Pada: <t:${expireUnix}:F>`,
           flags: 64
@@ -1941,16 +1974,32 @@ discordClient.on('interactionCreate', async (interaction) => {
 
         sub.expiresAt = Date.now()
         sub.expiredNotified = true
-        saveSubscriptions(subs)
 
         if (sub.channelId) {
-          const ch = guild.channels.cache.get(sub.channelId) || await guild.channels.fetch(sub.channelId).catch(() => null)
+          const chId = sub.channelId
+          sub.channelId = null
+          saveSubscriptions(subs)
+
+          const ch = guild.channels.cache.get(chId) || await guild.channels.fetch(chId).catch(() => null)
           if (ch) {
-            ch.send(`🛑 <@${targetUser.id}> Masa sewa Anda telah dihentikan oleh Admin. Semua bot (**${stoppedCount} bot**) telah dimatikan.`)
+            ch.send(`🛑 <@${targetUser.id}> Masa sewa Anda telah dihentikan oleh Admin. Semua bot (**${stoppedCount} bot**) telah dimatikan.\n⚠️ **Channel privat ini akan otomatis dihapus dalam 5 detik...**`).catch(() => {})
+            setTimeout(async () => {
+              try {
+                const chToDel = guild.channels.cache.get(chId) || await guild.channels.fetch(chId).catch(() => null)
+                if (chToDel) {
+                  await chToDel.delete('Masa sewa dihentikan oleh Admin')
+                  console.log(`[🗑️ DELETE CHANNEL] Channel privat ${chId} dihapus via /sewa stop.`)
+                }
+              } catch (delErr) {
+                console.error(`[Error delete channel ${chId}]:`, delErr.message)
+              }
+            }, 5000)
           }
+        } else {
+          saveSubscriptions(subs)
         }
 
-        await interaction.reply({ content: `🛑 Sewa user <@${targetUser.id}> berhasil dihentikan. **${stoppedCount} bot** telah dimatikan.` })
+        await interaction.reply({ content: `🛑 Sewa user <@${targetUser.id}> berhasil dihentikan. **${stoppedCount} bot** telah dimatikan dan channel privat akan segera dihapus.` })
       }
       else if (subcommand === 'list') {
         if (!isAdmin) {
@@ -1972,7 +2021,8 @@ discordClient.on('interactionCreate', async (interaction) => {
           const expUnix = Math.floor(s.expiresAt / 1000)
           const activeCount = Object.values(activeBots).filter(b => b.ownerId === uid && !b.isStopped).length
           const statusIcon = isExpired ? '🔴 Expired' : `🟢 Aktif (<t:${expUnix}:R>)`
-          return `• <@${uid}> ➜ Slot: **${activeCount}/${s.maxBots}** | Status: ${statusIcon} | Channel: <#${s.channelId}>`
+          const chInfo = s.channelId ? `<#${s.channelId}>` : '*Sudah Dihapus*'
+          return `• <@${uid}> ➜ Slot: **${activeCount}/${s.maxBots}** | Status: ${statusIcon} | Channel: ${chInfo}`
         })
 
         await interaction.reply({ content: `📋 **Daftar Seluruh Penyewa Bot (${userIds.length}):**\n${lines.join('\n')}`, flags: 64 })
