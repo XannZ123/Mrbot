@@ -109,15 +109,25 @@ function checkAccess(interaction, botNick = null, isNewBot = false) {
 
   // Jika sedang login/register bot baru, cek batas kuota slot
   if (isNewBot && botNick) {
+    if (!sub.assignedBots) sub.assignedBots = []
+
+    // 1. Kunci berdasarkan akun / nama bot yang sudah didaftarkan (Batas Slot Akun)
+    const isAssigned = sub.assignedBots.includes(botNick)
+    if (!isAssigned && sub.assignedBots.length >= sub.maxBots) {
+      return { 
+        allowed: false, 
+        reason: `❌ **Batas Kuota Slot Tercapai!** Anda hanya menyewa **${sub.maxBots} bot** (Akun terdaftar: \`${sub.assignedBots.join(', ')}\`). Tidak bisa mendaftarkan akun baru lagi! Hubungi Owner jika ingin ganti nama bot atau tambah slot.` 
+      }
+    }
+
+    // 2. Kunci berdasarkan bot yang sedang aktif online bersamaan
     const currentlyActiveCount = Object.values(activeBots).filter(b => b.ownerId === user.id && !b.isStopped).length
     const isAlreadyMine = activeBots[botNick] && activeBots[botNick].ownerId === user.id && !activeBots[botNick].isStopped
 
-    if (!isAlreadyMine) {
-      if (currentlyActiveCount >= sub.maxBots) {
-        return { 
-          allowed: false, 
-          reason: `❌ **Kuota Slot Penuh!** Kuota sewa Anda hanya untuk **${sub.maxBots} bot** sekaligus (saat ini aktif: **${currentlyActiveCount} bot**). Gunakan \`/stop\` terlebih dahulu atau hubungi Owner jika ingin upgrade slot!` 
-        }
+    if (!isAlreadyMine && currentlyActiveCount >= sub.maxBots) {
+      return { 
+        allowed: false, 
+        reason: `❌ **Kuota Slot Penuh!** Kuota sewa Anda hanya untuk **${sub.maxBots} bot** sekaligus (saat ini aktif: **${currentlyActiveCount} bot**). Gunakan \`/stop\` terlebih dahulu atau hubungi Owner jika ingin upgrade slot!` 
       }
     }
   }
@@ -1373,6 +1383,11 @@ discordClient.once('ready', async () => {
         sub.setName('list')
           .setDescription('Lihat daftar seluruh penyewa aktif di server')
       )
+      .addSubcommand(sub =>
+        sub.setName('resetbot')
+          .setDescription('Reset / hapus daftar bot penyewa (agar bisa registrasi atau ganti nama bot)')
+          .addUserOption(opt => opt.setName('user').setDescription('Pilih user penyewa').setRequired(true))
+      )
   ]
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN)
@@ -1390,6 +1405,17 @@ discordClient.on('interactionCreate', async (interaction) => {
       const access = checkAccess(interaction, null, false)
       if (!access.allowed) {
         await interaction.reply({ content: access.reason, flags: 64 })
+        return
+      }
+
+      // Cegah buka modal jika kuota slot akun yang didaftarkan sudah penuh
+      const subs = loadSubscriptions()
+      const sub = subs[interaction.user.id]
+      if (sub && !access.isAdmin && sub.assignedBots && sub.assignedBots.length >= sub.maxBots) {
+        await interaction.reply({
+          content: `❌ **Kuota Registrasi Penuh!** Kuota sewa Anda hanya untuk **${sub.maxBots} bot** dan Anda sudah mendaftarkan akun: \`${sub.assignedBots.join(', ')}\`.\n👉 Silakan langsung gunakan \`/login\` atau hubungi Owner jika ingin mengganti nama bot!`,
+          flags: 64
+        })
         return
       }
 
@@ -1920,6 +1946,39 @@ discordClient.on('interactionCreate', async (interaction) => {
         })
 
         await interaction.reply({ content: `📋 **Daftar Seluruh Penyewa Bot (${userIds.length}):**\n${lines.join('\n')}`, flags: 64 })
+      }
+      else if (subcommand === 'resetbot') {
+        if (!isAdmin) {
+          await interaction.reply({ content: '❌ Hanya Owner / Administrator yang dapat mereset bot penyewa!', flags: 64 })
+          return
+        }
+
+        const targetUser = interaction.options.getUser('user')
+        let subs = loadSubscriptions()
+        const sub = subs[targetUser.id]
+        if (!sub) {
+          await interaction.reply({ content: `ℹ️ User <@${targetUser.id}> tidak memiliki data sewa aktif.`, flags: 64 })
+          return
+        }
+
+        Object.keys(activeBots).forEach(name => {
+          if (activeBots[name].ownerId === targetUser.id) {
+            stopBot(name)
+          }
+        })
+
+        const oldBots = (sub.assignedBots && sub.assignedBots.length) ? sub.assignedBots.join(', ') : 'Belum ada'
+        sub.assignedBots = []
+        saveSubscriptions(subs)
+
+        if (sub.channelId) {
+          const ch = guild.channels.cache.get(sub.channelId) || await guild.channels.fetch(sub.channelId).catch(() => null)
+          if (ch) {
+            ch.send(`🔄 <@${targetUser.id}> Slot bot Anda telah direset oleh Admin. Anda sekarang bisa mendaftarkan (\`/register\`) atau login bot dengan nama baru!`)
+          }
+        }
+
+        await interaction.reply({ content: `✅ Berhasil mereset slot bot <@${targetUser.id}> (Bot sebelumnya: \`${oldBots}\`). User sekarang bisa mendaftarkan nama bot baru.` })
       }
     }
   } 
