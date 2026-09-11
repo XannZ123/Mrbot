@@ -499,7 +499,7 @@ function registerMinecraftBot(username, hostServer, passwordBot, interactionChan
             if (!sudahSelesai && botInstance && !botInstance._client?.ended) {
               sudahSelesai = true
               if (interactionChannel) {
-                interactionChannel.send(`⚠️ **Menunggu Konfirmasi Registrasi (${username}):** Server \`${hostServer}\` belum mengonfirmasi pendaftaran akun. Cek apakah password memenuhi syarat atau IP server sedang cooldown.`)
+                interactionChannel.send(`❌ **Registrasi Gagal: Password Terlalu Lemah / Ditolak Server!**\nServer \`${hostServer}\` menolak pendaftaran akun **${username}** karena kata sandi tidak memenuhi kriteria.\n💡 **Solusi:** Ulangi \`/register\` dengan password yang kuat (gabungan huruf dan angka minimal 8 karakter, contoh: \`Kucing1234\`, \`RelxBot2026\`). Jangan gunakan angka sederhana!`)
               }
               try { botInstance.removeAllListeners(); botInstance.end() } catch (_) {}
             }
@@ -884,7 +884,7 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
             if (!botData.isStopped && !botData.loginSuccess && botData.botInstance && !botData.botInstance._client?.ended) {
               console.log(`[⚠️ REGIS TIMEOUT ${username}] Belum ada respon sukses pendaftaran dari server.`)
               if (interactionChannel) {
-                interactionChannel.send(`⚠️ **Menunggu Konfirmasi Server (${username}):** Server belum mengonfirmasi pendaftaran akun. Cek apakah password memenuhi kriteria atau gunakan \`/register\` manual.`)
+                interactionChannel.send(`❌ **Pendaftaran Gagal: Password Terlalu Lemah / Ditolak Server!**\nServer belum menerima pendaftaran akun **${username}**.\n💡 **Solusi:** Ulangi \`/login\` atau \`/register\` dengan password yang lebih kuat (gabungan huruf dan angka minimal 8 karakter, contoh: \`RelxBot2026\`, \`Kucing1234\`).`)
               }
             }
           }, 8000)
@@ -2089,6 +2089,14 @@ discordClient.on('interactionCreate', async (interaction) => {
       const serverIp = interaction.fields.getTextInputValue('input_ip').trim()
       const botNick = interaction.fields.getTextInputValue('input_nickname').trim()
       const botPassword = interaction.fields.getTextInputValue('input_password').trim()
+
+      if (botPassword.length < 6 || /^\d+$/.test(botPassword)) {
+        await interaction.reply({ 
+          content: `❌ **Password Terlalu Lemah!** Server Minecraft (RelxMC) menolak kata sandi yang hanya berupa angka atau kurang dari 6 karakter.\n👉 Harap gunakan kombinasi huruf dan angka (contoh: \`Kucing1234\` atau \`RelxBot2026\`).`, 
+          flags: 64 
+        })
+        return
+      }
 
       const access = checkAccess(interaction, botNick, true)
       if (!access.allowed) {
