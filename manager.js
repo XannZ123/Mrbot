@@ -887,7 +887,12 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
     botData.botInstance.on('message', (jsonMsg) => {
       const pesan = jsonMsg.toString().trim()
       if (!pesan) return
-      console.log(`[💬 LOGIN CHAT ${username}]: ${pesan}`)
+      
+      // Hanya log chat sebelum login selesai (untuk memantau proses autentikasi).
+      // Setelah login sukses, hentikan log chat pemain lain / join / quit agar console bersih dan super enteng!
+      if (!botData.loginSuccess) {
+        console.log(`[💬 LOGIN CHAT ${username}]: ${pesan}`)
+      }
 
       const lower = pesan.toLowerCase()
 
