@@ -808,6 +808,10 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
 
     function notifyLoginSuccess(reasonText = '') {
       if (botData.isStopped || botData.loginSuccess) return
+      // Tolak konfirmasi palsu jika bot belum sempat mengirim /login atau /register
+      if (!botData.loginSent && !botData.autoRegSent) {
+        return
+      }
       botData.loginSuccess = true
       botData.failCount = 0
       if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
@@ -1067,12 +1071,12 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           return
         }
 
+        // Jangan anggap 'a cracked session' atau broadcast awal sebagai login sukses!
         if (lower.includes('berhasil') || 
             lower.includes('sukses') || 
             lower.includes('success') || 
-            lower.includes('selamat') ||
             lower.includes('registered') ||
-            lower.includes('a cracked session')) {
+            lower.includes('logged in')) {
           notifyLoginSuccess(titleStr)
         }
       } catch (err) {
@@ -1126,17 +1130,18 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
       // 2. Deteksi jika password SALAH atau DITOLAK (Terlalu Lemah, dll)
       if (lower.includes('password salah') || 
           lower.includes('wrong password') || 
+          lower.includes('a wrong password') || 
           lower.includes('incorrect password') || 
           lower.includes('kata sandi salah') || 
-          lower.includes('sandi salah') ||
-          lower.includes('login failed') ||
-          lower.includes('gagal login') ||
-          lower.includes('too weak') ||
-          lower.includes('terlalu lemah') ||
-          lower.includes('password is too weak') ||
-          lower.includes('too short') ||
-          lower.includes('terlalu pendek') ||
-          lower.includes('do not match') ||
+          lower.includes('sandi salah') || 
+          lower.includes('login failed') || 
+          lower.includes('gagal login') || 
+          lower.includes('too weak') || 
+          lower.includes('terlalu lemah') || 
+          lower.includes('password is too weak') || 
+          lower.includes('too short') || 
+          lower.includes('terlalu pendek') || 
+          lower.includes('do not match') || 
           lower.includes('tidak cocok')) {
         if (botData.fallbackTimer) clearTimeout(botData.fallbackTimer)
         console.log(`[❌ PASSWORD DITOLAK ${username}]: ${pesan}`)
@@ -1144,7 +1149,9 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
         if (interactionChannel) {
           let advice = ''
           if (lower.includes('weak') || lower.includes('lemah') || lower.includes('short') || lower.includes('pendek')) {
-            advice = `\n💡 **Tips:** Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka minimal 8 karakter (contoh: \`Kucing1234\`, \`RelxBot2026\`), jangan password angka sederhana.`
+            advice = `\n💡 **Tips:** Server RelxMC mewajibkan password yang kuat/unik. Gunakan kombinasi huruf dan angka minimal 8 karakter (contoh: \`Kucing1234\`, \`RelxBot2026\`).`
+          } else if (lower.includes('wrong') || lower.includes('salah') || lower.includes('incorrect')) {
+            advice = `\n💡 **Tips:** Kata sandi akun salah! Pastikan password yang dimasukkan sama persis dengan saat registrasi akun tersebut.`
           }
           interactionChannel.send(`❌ **Password Ditolak Server (${username})!**\n> *${pesan}*${advice}`)
         }
@@ -1160,29 +1167,21 @@ function loginMinecraftBot(username, hostServer, passwordBot, interactionChannel
           lower.includes('successful login') || 
           lower.includes('kamu berhasil masuk') || 
           lower.includes('selamat datang kembali') || 
-          lower.includes('welcome back') ||
-          lower.includes('kamu sekarang login') ||
-          lower.includes('anda sekarang login') ||
-          lower.includes('anda telah login') ||
-          lower.includes('kamu telah login') ||
-          lower.includes('you are now logged in') ||
-          lower.includes('you are already logged') ||
-          lower.includes('you are already registered') ||
-          lower.includes('a cracked session') ||
-          lower.includes('registered') ||
-          lower.includes('hi on minecraft server network') ||
-          lower.includes('sending you to') ||
-          lower.includes('you are in position') ||
-          lower.includes('selamat datang di server') ||
-          lower.includes('sukses masuk') ||
-          lower.includes('berhasil masuk') ||
-          lower.includes(`${username.toLowerCase()} bergabung ke peradaban`) ||
-          lower.includes('changemailaddress') || 
-          lower.includes('requestsecondfactor') || 
-          lower.includes('otentikasi dua langkah') || 
-          lower.includes('menghubungkan email ke akunmu') ||
-          lower.includes('second factor enabled') ||
-          lower.includes('email address assigned')) {
+          lower.includes('welcome back') || 
+          lower.includes('kamu sekarang login') || 
+          lower.includes('anda sekarang login') || 
+          lower.includes('anda telah login') || 
+          lower.includes('kamu telah login') || 
+          lower.includes('you are now logged in') || 
+          lower.includes('you are already logged') || 
+          lower.includes('you are already registered') || 
+          lower.includes('registered') || 
+          lower.includes('hi on minecraft server network') || 
+          lower.includes('useful commands') || 
+          lower.includes('sending you to') || 
+          lower.includes('you are in position') || 
+          lower.includes('sukses masuk') || 
+          lower.includes('berhasil masuk')) {
         notifyLoginSuccess(pesan)
         return
       }
