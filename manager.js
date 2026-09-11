@@ -479,7 +479,7 @@ function startSpam(username, pesan, jedaDetik = 15, antiDuplikat = true) {
         } catch (err) {
           console.log(`[❌ GAGAL SPAM ${username}]: ${err.message}`)
         }
-      }, idx * 750)
+      }, idx * 3000)
     })
   }
 
@@ -1233,9 +1233,9 @@ discordClient.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
               .setCustomId('input_pesan')
-              .setLabel('Pesan Promosi (Bisa Multi-Baris/Enter)')
+              .setLabel('Isi Spam Chat')
               .setStyle(TextInputStyle.Paragraph)
-              .setPlaceholder('&d&l✦ BUTUH JASA BOOTING AFK 24/7 ✦\n&6&l💰 150M / DAY • DM DISCORD &5&lxannyolo')
+              .setPlaceholder('Isi spam chat di sini...')
               .setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
